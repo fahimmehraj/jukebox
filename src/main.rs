@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use futures_util::{FutureExt, StreamExt};
 use warp::Filter;
 
@@ -32,15 +34,26 @@ async fn main() {
             })
         })
     });
+
     // GET /loadtracks?identifier=dQw4w9WgXcQ
     let loadtracks = warp::path!("loadtracks")
-        .and(warp::query::<String>())
-        .map(|identifier| format!("Loading tracks with identifier {}", identifier));
+        .and(warp::query::<HashMap<String, String>>())
+        .map(
+            |params: HashMap<String, String>| match params.get("identifier") {
+                Some(identifier) => format!("Loading tracks with identifier {}", identifier),
+                None => "No identifier provided".to_string(),
+            },
+        );
 
     // GET /decodetrack?track=<trackid>
     let decodetrack = warp::path!("decodetrack")
-        .and(warp::query::<String>())
-        .map(|track| format!("Decoding track {}", track));
+        .and(warp::query::<HashMap<String, String>>())
+        .map(
+            |params: HashMap<String, String>| match params.get("track") {
+                Some(track) => format!("Decoding track {}", track),
+                None => "No track provided".to_string(),
+            },
+        );
 
     // POST /decodetracks
     let decodetracks = warp::path!("decodetracks")
