@@ -1,39 +1,24 @@
+use serde_json::Error;
 use std::collections::HashMap;
 
-use futures_util::{FutureExt, StreamExt};
+use futures_util::{SinkExt, StreamExt};
 use warp::Filter;
 
 use jukebox::Payload;
 
-/*
-https://github.com/freyacodes/Lavalink/blob/master/IMPLEMENTATION.md
+// https://github.com/freyacodes/Lavalink/blob/master/IMPLEMENTATION.md
 
-TODO: Websocket serve
-Connection open: Accepts password, User-Id, Client-Name
-Receive these opcodes: voiceUpdate, play, stop, pause, seek, volume, filters, destroy, configureResuming
-Send these opcodes: playerUpdate, stats?, event
-
-TODO: Host the following endpoints that require authorization header:
-GET /loadtracks?identifier=dQw4w9WgXcQ
-GET /decodetrack?track=trackid
-POST /decodetracks
-    body: [trackids]
-
-TODO: implement ip rotation
-*/
 #[tokio::main]
 async fn main() {
-    let gateway = warp::get().and(warp::ws()).map(|ws: warp::ws::Ws| {
-        // This will call our function if the handshake succeeds.
-        ws.on_upgrade(|websocket| {
-            let (tx, rx) = websocket.split();
-            rx.forward(tx).map(|result| {
-                if let Err(e) = result {
-                    eprintln!("websocket error: {}", e);
-                }
-            })
-        })
-    });
+    let gateway = warp::get()
+        .and(warp::header::<String>("Authorization"))
+        .and(warp::header::<String>("User-Id"))
+        .and(warp::header::<String>("Client-Name"))
+        .and(warp::ws())
+        .map(|authorization, user_id, client_name, ws: warp::ws::Ws| {
+            // This will call our function if the handshake succeeds.
+            ws.on_upgrade(handle_websocket)
+        });
 
     // GET /loadtracks?identifier=dQw4w9WgXcQ
     let loadtracks = warp::path!("loadtracks")
@@ -63,4 +48,57 @@ async fn main() {
     let routes = gateway.or(loadtracks).or(decodetrack).or(decodetracks);
 
     warp::serve(routes).run(([127, 0, 0, 1], 3030)).await;
+}
+
+async fn handle_websocket(websocket: warp::ws::WebSocket) {
+    let (mut sender, mut receiver) = websocket.split();
+    while let Some(msg) = receiver.next().await {
+        let msg = match msg {
+            Ok(msg) => msg,
+            Err(e) => {
+                eprintln!("websocket error: {}", e);
+                break;
+            }
+        };
+        let payload: Result<Payload, Error> = serde_json::from_slice(&msg.as_bytes());
+        match payload {
+            Ok(payload) => {
+                println!("payload: {:?}", payload);
+                handle_payload(payload);
+                sender.send(msg).await.unwrap();
+            }
+            Err(e) => {
+                eprintln!("Error deserializing payload: {}", e);
+            }
+        }
+    }
+}
+
+fn handle_payload(payload: Payload) {
+    match payload {
+        Payload::VoiceUpdate(voice_update) => {
+            println!("VoiceUpdate: {:?}", voice_update);
+        }
+        Payload::Play(play) => {
+            println!("Play: {:?}", play);
+        }
+        Payload::Stop(stop) => {
+            println!("Stop: {:?}", stop);
+        }
+        Payload::Pause(pause) => {
+            println!("Pause: {:?}", pause);
+        }
+        Payload::Seek(seek) => {
+            println!("Seek: {:?}", seek);
+        }
+        Payload::Volume(volume) => {
+            println!("Volume: {:?}", volume);
+        }
+        Payload::Filters(filters) => {
+            println!("Filters: {:?}", filters);
+        }
+        Payload::Destroy(destroy) => {
+            println!("Destroy: {:?}", destroy);
+        }
+    }
 }
