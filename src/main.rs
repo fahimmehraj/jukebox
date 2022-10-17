@@ -1,23 +1,33 @@
 use serde_json::Error;
+use warp::ws::Message;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use futures_util::{SinkExt, StreamExt};
+use tokio::sync::mpsc;
 use warp::Filter;
 
 use jukebox::Payload;
+use jukebox::client::Client;
+
+type Clients = Arc<HashMap<Client, mpsc::UnboundedSender<Message>>>;
 
 // https://github.com/freyacodes/Lavalink/blob/master/IMPLEMENTATION.md
 
 #[tokio::main]
 async fn main() {
+    let clients: Clients = Clients::default();
+    let clients = warp::any().map(move || clients.clone());
+
     let gateway = warp::get()
         .and(warp::header::<String>("Authorization"))
         .and(warp::header::<String>("User-Id"))
         .and(warp::header::<String>("Client-Name"))
+        .and(clients)
         .and(warp::ws())
-        .map(|authorization, user_id, client_name, ws: warp::ws::Ws| {
+        .map(|authorization, user_id, client_name, clients, ws: warp::ws::Ws| {
             // This will call our function if the handshake succeeds.
-            ws.on_upgrade(handle_websocket)
+            ws.on_upgrade(move |websocket| handle_websocket(websocket, clients));
         });
 
     // GET /loadtracks?identifier=dQw4w9WgXcQ
@@ -50,7 +60,7 @@ async fn main() {
     warp::serve(routes).run(([127, 0, 0, 1], 3030)).await;
 }
 
-async fn handle_websocket(websocket: warp::ws::WebSocket) {
+async fn handle_websocket<'a>(websocket: warp::ws::WebSocket, clients: Clients) {
     let (mut sender, mut receiver) = websocket.split();
     while let Some(msg) = receiver.next().await {
         let msg = match msg {
@@ -71,7 +81,7 @@ async fn handle_websocket(websocket: warp::ws::WebSocket) {
                 eprintln!("Error deserializing payload: {}", e);
             }
         }
-    }
+    };
 }
 
 fn handle_payload(payload: Payload) {
