@@ -4,33 +4,38 @@ use std::sync::Arc;
 use warp::ws::Message;
 
 use futures_util::{SinkExt, StreamExt};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, RwLock};
 use warp::Filter;
 
 use jukebox::client::{Client, Headers};
 use jukebox::Payload;
 
-type Clients = Arc<HashMap<Client, mpsc::UnboundedSender<Message>>>;
+type Clients = Arc<RwLock<HashMap<String, Client>>>;
+
+const PASSWORD: &str = "youshallnotpass";
 
 // https://github.com/freyacodes/Lavalink/blob/master/IMPLEMENTATION.md
 
 #[tokio::main]
 async fn main() {
-    let clients: Clients = Clients::default();
-    let clients = warp::any().map(move || clients.clone());
-
     let headers = warp::any()
         .and(warp::header::<String>("Authorization"))
         .and(warp::header::<String>("User-Id"))
         .and(warp::header::<String>("Client-Name"))
-        .map(|authorization, user_id, client_name| {
-            Headers::new(authorization, user_id, client_name)
+        .and_then(|authorization, user_id, client_name| async move {
+            if let Some(client) =
+                Headers::new(authorization, user_id, client_name).build(PASSWORD)
+            {
+                Ok(client)
+            } else {
+                Err(warp::reject())
+            }
         });
 
-    let gateway = warp::get().and(headers).and(clients).and(warp::ws()).map(
-        |headers, clients, ws: warp::ws::Ws| {
+    let gateway = warp::get().and(headers).and(warp::ws()).map(
+        |client, ws: warp::ws::Ws| {
             // This will call our function if the handshake succeeds.
-            ws.on_upgrade(move |websocket| handle_websocket(websocket, headers, clients))
+            ws.on_upgrade(move |websocket| handle_websocket(websocket, client))
         },
     );
 
@@ -64,7 +69,7 @@ async fn main() {
     warp::serve(routes).run(([127, 0, 0, 1], 3030)).await;
 }
 
-async fn handle_websocket<'a>(websocket: warp::ws::WebSocket, headers: Headers, clients: Clients) {
+async fn handle_websocket(websocket: warp::ws::WebSocket, client: Client) {
     let (mut sender, mut receiver) = websocket.split();
     while let Some(msg) = receiver.next().await {
         let msg = match msg {

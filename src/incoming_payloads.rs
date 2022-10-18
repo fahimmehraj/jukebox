@@ -44,12 +44,12 @@ pub struct Play {
     guild_id: Snowflake,
     track: String,
     #[serde(with = "serde_millis")]
-    start_time: Duration,
+    start_time: Option<Duration>,
     #[serde(with = "serde_millis")]
-    end_time: Duration,
-    volume: i16,
-    no_replace: bool,
-    pause: bool,
+    end_time: Option<Duration>,
+    volume: Option<i16>,
+    no_replace: Option<bool>,
+    pause: Option<bool>,
 }
 
 #[derive(Deserialize, Debug)]
