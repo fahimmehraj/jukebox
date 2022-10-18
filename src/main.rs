@@ -1,14 +1,14 @@
 use serde_json::Error;
-use warp::ws::Message;
 use std::collections::HashMap;
 use std::sync::Arc;
+use warp::ws::Message;
 
 use futures_util::{SinkExt, StreamExt};
 use tokio::sync::mpsc;
 use warp::Filter;
 
+use jukebox::client::{Client, Headers};
 use jukebox::Payload;
-use jukebox::client::Client;
 
 type Clients = Arc<HashMap<Client, mpsc::UnboundedSender<Message>>>;
 
@@ -19,16 +19,20 @@ async fn main() {
     let clients: Clients = Clients::default();
     let clients = warp::any().map(move || clients.clone());
 
-    let gateway = warp::get()
+    let headers = warp::any()
         .and(warp::header::<String>("Authorization"))
         .and(warp::header::<String>("User-Id"))
         .and(warp::header::<String>("Client-Name"))
-        .and(clients)
-        .and(warp::ws())
-        .map(|authorization, user_id, client_name, clients, ws: warp::ws::Ws| {
-            // This will call our function if the handshake succeeds.
-            ws.on_upgrade(move |websocket| handle_websocket(websocket, clients));
+        .map(|authorization, user_id, client_name| {
+            Headers::new(authorization, user_id, client_name)
         });
+
+    let gateway = warp::get().and(headers).and(clients).and(warp::ws()).map(
+        |headers, clients, ws: warp::ws::Ws| {
+            // This will call our function if the handshake succeeds.
+            ws.on_upgrade(move |websocket| handle_websocket(websocket, headers, clients))
+        },
+    );
 
     // GET /loadtracks?identifier=dQw4w9WgXcQ
     let loadtracks = warp::path!("loadtracks")
@@ -60,7 +64,7 @@ async fn main() {
     warp::serve(routes).run(([127, 0, 0, 1], 3030)).await;
 }
 
-async fn handle_websocket<'a>(websocket: warp::ws::WebSocket, clients: Clients) {
+async fn handle_websocket<'a>(websocket: warp::ws::WebSocket, headers: Headers, clients: Clients) {
     let (mut sender, mut receiver) = websocket.split();
     while let Some(msg) = receiver.next().await {
         let msg = match msg {
@@ -81,7 +85,7 @@ async fn handle_websocket<'a>(websocket: warp::ws::WebSocket, clients: Clients) 
                 eprintln!("Error deserializing payload: {}", e);
             }
         }
-    };
+    }
 }
 
 fn handle_payload(payload: Payload) {
