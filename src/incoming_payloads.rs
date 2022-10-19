@@ -23,17 +23,17 @@ pub enum Payload {
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct VoiceUpdate {
-    guild_id: Snowflake,
-    session_id: Snowflake,
-    event: VoiceUpdateEvent,
+    pub guild_id: Snowflake,
+    pub session_id: Snowflake,
+    pub event: VoiceUpdateEvent,
 }
 
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
-struct VoiceUpdateEvent {
-    token: String,
-    guild_id: Snowflake,
-    endpoint: Option<String>,
+pub struct VoiceUpdateEvent {
+    pub token: String,
+    pub guild_id: Snowflake,
+    pub endpoint: Option<String>,
 }
 
 // possibly change track type to custom type
@@ -41,62 +41,62 @@ struct VoiceUpdateEvent {
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Play {
-    guild_id: Snowflake,
-    track: String,
+    pub guild_id: Snowflake,
+    pub track: String,
     #[serde(with = "serde_millis")]
-    start_time: Option<Duration>,
+    pub start_time: Option<Duration>,
     #[serde(with = "serde_millis")]
-    end_time: Option<Duration>,
-    volume: Option<i16>,
-    no_replace: Option<bool>,
-    pause: Option<bool>,
+    pub end_time: Option<Duration>,
+    pub volume: Option<i16>,
+    pub no_replace: Option<bool>,
+    pub pause: Option<bool>,
 }
 
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Stop {
-    guild_id: Snowflake,
+    pub guild_id: Snowflake,
 }
 
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Pause {
-    guild_id: Snowflake,
-    pause: bool,
+    pub guild_id: Snowflake,
+    pub pause: bool,
 }
 
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Seek {
-    guild_id: Snowflake,
+    pub guild_id: Snowflake,
     #[serde(with = "serde_millis")]
-    position: Duration,
+    pub position: Duration,
 }
 
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Volume {
-    guild_id: Snowflake,
-    volume: i16,
+    pub guild_id: Snowflake,
+    pub volume: i16,
 }
 
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Filters {
-    guild_id: Snowflake,
-    volume: Option<f64>,
-    equalizer: Option<Vec<EqualizerObject>>,
-    karaoke: Option<Karaoke>,
-    timescale: Option<Timescale>,
-    tremolo: Option<Tremolo>,
-    vibrato: Option<Vibrato>,
-    distortion: Option<Distortion>,
-    channel_mix: Option<ChannelMix>,
-    low_pass: Option<LowPass>,
+    pub guild_id: Snowflake,
+    pub volume: Option<f64>,
+    pub equalizer: Option<Vec<EqualizerObject>>,
+    pub karaoke: Option<Karaoke>,
+    pub timescale: Option<Timescale>,
+    pub tremolo: Option<Tremolo>,
+    pub vibrato: Option<Vibrato>,
+    pub distortion: Option<Distortion>,
+    pub channel_mix: Option<ChannelMix>,
+    pub low_pass: Option<LowPass>,
 }
 
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Destroy {
-    guild_id: Snowflake,
+    pub guild_id: Snowflake,
 }

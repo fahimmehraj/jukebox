@@ -1,3 +1,9 @@
+pub mod player;
+
+use std::collections::HashMap;
+
+use player::Player;
+
 pub struct Headers {
     authorization: String,
     user_id: String,
@@ -25,6 +31,7 @@ impl Headers {
             Some(headers) => Some(Client {
                 user_id: headers.user_id,
                 client_name: headers.client_name,
+                players: HashMap::new(),
             }),
             None => None
         }
@@ -34,6 +41,7 @@ impl Headers {
 pub struct Client {
     user_id: String,
     client_name: String,
+    players: HashMap<String, Player>,
 }
 
 impl Client {
@@ -43,5 +51,9 @@ impl Client {
 
     pub fn client_name(&self) -> String {
         self.client_name.clone()
-    } 
+    }
+
+    pub fn add_player(&mut self, player: Player) {
+        self.players.insert(player.guild_id(), player);
+    }
 }

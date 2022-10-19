@@ -1,3 +1,4 @@
+use jukebox::client::player::Player;
 use serde_json::Error;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -10,9 +11,12 @@ use warp::Filter;
 use jukebox::client::{Client, Headers};
 use jukebox::Payload;
 
-type Clients = Arc<RwLock<HashMap<String, Client>>>;
-
 const PASSWORD: &str = "youshallnotpass";
+
+#[derive(Debug)]
+struct Unauthorized;
+
+impl warp::reject::Reject for Unauthorized {}
 
 // https://github.com/freyacodes/Lavalink/blob/master/IMPLEMENTATION.md
 
@@ -23,21 +27,21 @@ async fn main() {
         .and(warp::header::<String>("User-Id"))
         .and(warp::header::<String>("Client-Name"))
         .and_then(|authorization, user_id, client_name| async move {
-            if let Some(client) =
-                Headers::new(authorization, user_id, client_name).build(PASSWORD)
+            if let Some(client) = Headers::new(authorization, user_id, client_name).build(PASSWORD)
             {
                 Ok(client)
             } else {
-                Err(warp::reject())
+                Err(warp::reject::custom(Unauthorized))
             }
         });
 
-    let gateway = warp::get().and(headers).and(warp::ws()).map(
-        |client, ws: warp::ws::Ws| {
-            // This will call our function if the handshake succeeds.
+    // ws://127.0.0.1/
+    let gateway = warp::get()
+        .and(headers)
+        .and(warp::ws())
+        .map(|client, ws: warp::ws::Ws| {
             ws.on_upgrade(move |websocket| handle_websocket(websocket, client))
-        },
-    );
+        });
 
     // GET /loadtracks?identifier=dQw4w9WgXcQ
     let loadtracks = warp::path!("loadtracks")
@@ -64,13 +68,56 @@ async fn main() {
         .and(warp::body::json())
         .map(|tracks: Vec<String>| format!("Decoding tracks {:?}", tracks));
 
-    let routes = gateway.or(loadtracks).or(decodetrack).or(decodetracks);
+    let routes = gateway
+        .or(loadtracks)
+        .or(decodetrack)
+        .or(decodetracks)
+        .recover(|err: warp::Rejection| async move {
+            if let Some(Unauthorized) = err.find() {
+                Ok::<_, warp::Rejection>(warp::reply::with_status(
+                    "Unauthorized",
+                    warp::http::StatusCode::UNAUTHORIZED,
+                ))
+            } else {
+                Err(err)
+            }
+        });
 
     warp::serve(routes).run(([127, 0, 0, 1], 3030)).await;
 }
 
 async fn handle_websocket(websocket: warp::ws::WebSocket, client: Client) {
     let (mut sender, mut receiver) = websocket.split();
+
+    // first payload should be voiceUpdate
+    if let Some(msg) = receiver.next().await {
+        let msg = match msg {
+            Ok(msg) => msg,
+            Err(e) => {
+                eprintln!("websocket error: {}", e);
+                return
+            },
+        };
+        let payload = match serde_json::from_slice::<Payload>(&msg.as_bytes()) {
+            Ok(payload) => payload,
+            Err(e) => {
+                eprintln!("Error deserializing payload: {}", e);
+                return
+            },
+        };
+        if let Payload::VoiceUpdate(voice_update) = payload {
+            println!("Voice update: {:?}", voice_update);
+            let player = Player::from(voice_update);
+            if player.endpoint().is_none() {
+                eprintln!("No endpoint provided");
+                return
+            }
+        } else {
+            eprintln!("First payload should be voiceUpdate");
+            return
+        }
+    }
+
     while let Some(msg) = receiver.next().await {
         let msg = match msg {
             Ok(msg) => msg,
