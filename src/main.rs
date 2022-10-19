@@ -86,15 +86,15 @@ async fn main() {
     warp::serve(routes).run(([127, 0, 0, 1], 3030)).await;
 }
 
-async fn handle_websocket(websocket: warp::ws::WebSocket, client: Client) {
+async fn handle_websocket(websocket: warp::ws::WebSocket, mut client: Client) {
     let (mut sender, mut receiver) = websocket.split();
 
     // first payload should be voiceUpdate
-    if let Some(msg) = receiver.next().await {
+    let voice_update = if let Some(msg) = receiver.next().await {
         let msg = match msg {
             Ok(msg) => msg,
             Err(e) => {
-                eprintln!("websocket error: {}", e);
+                eprintln!("Websocket error: {}", e);
                 return
             },
         };
@@ -105,18 +105,20 @@ async fn handle_websocket(websocket: warp::ws::WebSocket, client: Client) {
                 return
             },
         };
-        if let Payload::VoiceUpdate(voice_update) = payload {
-            println!("Voice update: {:?}", voice_update);
-            let player = Player::from(voice_update);
-            if player.endpoint().is_none() {
-                eprintln!("No endpoint provided");
+        match payload {
+            Payload::VoiceUpdate(voice_update) => voice_update,
+            _ => {
+                eprintln!("First payload should be voiceUpdate");
                 return
-            }
-        } else {
-            eprintln!("First payload should be voiceUpdate");
-            return
+            },
         }
-    }
+    } else {
+        eprintln!("websocket closed?");
+        return
+    };
+
+    let player = Player::from(voice_update);
+    client.add_player(player);
 
     while let Some(msg) = receiver.next().await {
         let msg = match msg {
