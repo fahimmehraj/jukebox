@@ -3,4 +3,4 @@ mod websocket;
 
 pub mod client;
 
-pub use incoming_payloads::Payload;
+pub use incoming_payloads::{Payload, Opcode, VoiceUpdate};

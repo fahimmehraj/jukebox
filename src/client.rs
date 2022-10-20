@@ -2,7 +2,12 @@ pub mod player;
 
 use std::collections::HashMap;
 
+use futures_util::{stream::SplitSink, SinkExt};
 use player::Player;
+use tokio::sync::{RwLock, mpsc::UnboundedSender};
+use warp::ws::{WebSocket, Message};
+
+use crate::Payload;
 
 pub struct Headers {
     authorization: String,
@@ -19,32 +24,31 @@ impl Headers {
         }
     }
 
-    fn verify(self, authorization: &str) -> Option<Self> {
+    pub fn verify(self, authorization: &str) -> Option<Self> {
         if self.authorization != authorization {
             return None
         }
         Some(self)
-    }
-
-    pub fn build(self, authorization: &str) -> Option<Client> {
-        match self.verify(authorization) {
-            Some(headers) => Some(Client {
-                user_id: headers.user_id,
-                client_name: headers.client_name,
-                players: HashMap::new(),
-            }),
-            None => None
-        }
     }
 }
 
 pub struct Client {
     user_id: String,
     client_name: String,
-    players: HashMap<String, Player>,
+    players: RwLock<HashMap<String, Player>>,
+    sender: RwLock<SplitSink<WebSocket, Message>>
 }
 
 impl Client {
+    pub fn new(headers: Headers, sender: SplitSink<WebSocket, Message>) -> Self {
+        Self {
+            user_id: headers.user_id,
+            client_name: headers.client_name,
+            players: RwLock::new(HashMap::new()),
+            sender: RwLock::new(sender),
+        }
+    }
+
     pub fn id(&self) -> String {
         self.user_id.clone()
     }
@@ -53,7 +57,18 @@ impl Client {
         self.client_name.clone()
     }
 
-    pub fn add_player(&mut self, player: Player) {
-        self.players.insert(player.guild_id(), player);
+    pub async fn add_player(&self, player: Player) {
+        self.players.write().await.insert(player.guild_id(), player);
     }
+
+    pub async fn get_player_sender(&self, guild_id: &str) -> Option<UnboundedSender<Payload>> {
+        match self.players.read().await.get(guild_id) {
+            Some(player) => Some(player.sender()),
+            None => None,
+        }
+    }
+
+    pub async fn send(&self, message: Message) {
+        self.sender.write().await.send(message);
+    } 
 }

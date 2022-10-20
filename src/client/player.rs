@@ -1,12 +1,18 @@
-use std::time::Duration;
+use std::{
+    io::{Error, ErrorKind},
+    time::Duration,
+};
 
-use crate::incoming_payloads::VoiceUpdate;
+use tokio::sync::mpsc::UnboundedSender;
+
+use crate::{incoming_payloads::VoiceUpdate, Payload};
 
 pub struct Player {
     guild_id: String,
     session_id: String,
     token: String,
-    endpoint: Option<String>,
+    endpoint: String,
+    sender: UnboundedSender<Payload>,
     track: Option<String>,
     start_time: Option<Duration>,
     end_time: Option<Duration>,
@@ -15,24 +21,33 @@ pub struct Player {
     pause: Option<bool>,
 }
 
-impl From<VoiceUpdate> for Player {
-    fn from(voice_update: VoiceUpdate) -> Self {
-        Self {
-            guild_id: voice_update.guild_id,
-            session_id: voice_update.session_id,
-            token: voice_update.event.token,
-            endpoint: voice_update.event.endpoint,
-            track: None,
-            start_time: None,
-            end_time: None,
-            volume: None,
-            no_replace: None,
-            pause: None,
+impl Player {
+    pub fn new(
+        voice_update: VoiceUpdate,
+        tx: UnboundedSender<Payload>
+    ) -> Result<Self, Error> {
+        if let Some(endpoint) = voice_update.event.endpoint {
+            Ok(Self {
+                guild_id: voice_update.guild_id,
+                session_id: voice_update.session_id,
+                token: voice_update.event.token,
+                endpoint: endpoint,
+                sender: tx,
+                track: None,
+                start_time: None,
+                end_time: None,
+                volume: None,
+                no_replace: None,
+                pause: None,
+            })
+        } else {
+            Err(Error::new(
+                ErrorKind::ConnectionAborted,
+                "No endpoint provided",
+            ))
         }
     }
-}
 
-impl Player {
     pub fn guild_id(&self) -> String {
         self.guild_id.clone()
     }
@@ -45,7 +60,7 @@ impl Player {
         self.token.clone()
     }
 
-    pub fn endpoint(&self) -> Option<String> {
+    pub fn endpoint(&self) -> String {
         self.endpoint.clone()
     }
 
@@ -71,5 +86,9 @@ impl Player {
 
     pub fn pause(&self) -> Option<bool> {
         self.pause
+    }
+
+    pub fn sender(&self) -> UnboundedSender<Payload> {
+        self.sender.clone()
     }
 }

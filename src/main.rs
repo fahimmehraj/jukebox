@@ -1,6 +1,7 @@
-use futures_util::stream::SplitStream;
+use futures_util::stream::{SplitStream, SplitSink};
 use jukebox::client::player::Player;
 use serde_json::Error;
+use tokio::sync::mpsc::unbounded_channel;
 use std::collections::HashMap;
 use std::sync::Arc;
 use warp::ws::{Message, WebSocket};
@@ -10,7 +11,7 @@ use tokio::sync::{mpsc, RwLock};
 use warp::Filter;
 
 use jukebox::client::{Client, Headers};
-use jukebox::Payload;
+use jukebox::{Payload, VoiceUpdate, Opcode};
 
 const PASSWORD: &str = "youshallnotpass";
 
@@ -28,9 +29,9 @@ async fn main() {
         .and(warp::header::<String>("User-Id"))
         .and(warp::header::<String>("Client-Name"))
         .and_then(|authorization, user_id, client_name| async move {
-            if let Some(client) = Headers::new(authorization, user_id, client_name).build(PASSWORD)
+            if let Some(headers) = Headers::new(authorization, user_id, client_name).verify(PASSWORD)
             {
-                Ok(client)
+                Ok(headers)
             } else {
                 Err(warp::reject::custom(Unauthorized))
             }
@@ -40,8 +41,8 @@ async fn main() {
     let gateway = warp::get()
         .and(headers)
         .and(warp::ws())
-        .map(|client, ws: warp::ws::Ws| {
-            ws.on_upgrade(move |websocket| handle_websocket(websocket, client))
+        .map(|headers, ws: warp::ws::Ws| {
+            ws.on_upgrade(move |websocket| handle_websocket(websocket, headers))
         });
 
     // GET /loadtracks?identifier=dQw4w9WgXcQ
@@ -88,40 +89,43 @@ async fn main() {
 }
 
 // first payload should be voiceUpdate
-async fn handle_websocket(websocket: warp::ws::WebSocket, mut client: Client) {
-    let (mut tx, mut rx) = websocket.split();
+async fn handle_websocket(websocket: warp::ws::WebSocket, headers: Headers) {
+    let (tx, mut rx) = websocket.split();
+    let client = Arc::new(Client::new(headers, tx));
 
-    let payload = match handle_message(&mut rx).await {
-        Some(payload) => payload,
-        None => return,
-    };
-
-    let voice_update = match payload {
-        Payload::VoiceUpdate(voice_update) => {
-            if voice_update.event.endpoint.is_none() {
-                eprintln!("No endpoint provided");
-                return;
-            }
-            voice_update
+    while let Some(payload) = handle_message(&mut rx).await {
+        match payload.op {
+            Opcode::VoiceUpdate(voice_update) => create_player(client.clone(), voice_update).await,
+            _ => {
+                match client.get_player_sender(&payload.guild_id).await {
+                    Some(sender) => {
+                        sender.send(payload);
+                    },
+                    None => {
+                        client.send(Message::text("No player associated with this guild_id"));
+                    }
+                }
+            },
         }
-        _ => {
-            eprintln!("First payload should be voiceUpdate");
-            return;
-        }
-    };
+    }
+}
 
-    let player = Player::from(voice_update);
-    client.add_player(player);
+async fn create_player(client: Arc<Client>, voice_update: VoiceUpdate) {
+    let (tx, mut rx) = unbounded_channel();
+    let player = match Player::new(voice_update, tx) {
+        Ok(player) => player,
+        Err(e) => { eprintln!("{}", e); return; }
+    };
+    client.add_player(player).await;
 
     // handler for this player
     tokio::spawn(async move {
-        while let Some(payload) = handle_message(&mut rx).await {
+        while let Some(payload) = rx.recv().await {
             println!("payload: {:?}", payload);
-            tx.send(Message::text(format!("received payload: {:?}", payload))).await;
+            client.send(Message::text(format!("received payload: {:?}", payload))).await;
             handle_payload(payload);
         }
-    });
-
+    }).await.unwrap();
 }
 
 async fn handle_message(rx: &mut SplitStream<WebSocket>) -> Option<Payload> {
@@ -151,29 +155,29 @@ async fn handle_message(rx: &mut SplitStream<WebSocket>) -> Option<Payload> {
 }
 
 fn handle_payload(payload: Payload) {
-    match payload {
-        Payload::VoiceUpdate(voice_update) => {
+    match payload.op {
+        Opcode::VoiceUpdate(voice_update) => {
             println!("VoiceUpdate: {:?}", voice_update);
         }
-        Payload::Play(play) => {
+        Opcode::Play(play) => {
             println!("Play: {:?}", play);
         }
-        Payload::Stop(stop) => {
+        Opcode::Stop(stop) => {
             println!("Stop: {:?}", stop);
         }
-        Payload::Pause(pause) => {
+        Opcode::Pause(pause) => {
             println!("Pause: {:?}", pause);
         }
-        Payload::Seek(seek) => {
+        Opcode::Seek(seek) => {
             println!("Seek: {:?}", seek);
         }
-        Payload::Volume(volume) => {
+        Opcode::Volume(volume) => {
             println!("Volume: {:?}", volume);
         }
-        Payload::Filters(filters) => {
+        Opcode::Filters(filters) => {
             println!("Filters: {:?}", filters);
         }
-        Payload::Destroy(destroy) => {
+        Opcode::Destroy(destroy) => {
             println!("Destroy: {:?}", destroy);
         }
     }

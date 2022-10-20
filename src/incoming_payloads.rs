@@ -8,8 +8,16 @@ type Snowflake = String;
 
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
+pub struct Payload {
+    pub guild_id: String,
+    #[serde(flatten)]
+    pub op: Opcode
+}
+
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
 #[serde(tag = "op")]
-pub enum Payload {
+pub enum Opcode {
     VoiceUpdate(VoiceUpdate),
     Play(Play),
     Stop(Stop),
