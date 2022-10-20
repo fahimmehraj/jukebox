@@ -1,8 +1,9 @@
+use futures_util::stream::SplitStream;
 use jukebox::client::player::Player;
 use serde_json::Error;
 use std::collections::HashMap;
 use std::sync::Arc;
-use warp::ws::Message;
+use warp::ws::{Message, WebSocket};
 
 use futures_util::{SinkExt, StreamExt};
 use tokio::sync::{mpsc, RwLock};
@@ -86,59 +87,66 @@ async fn main() {
     warp::serve(routes).run(([127, 0, 0, 1], 3030)).await;
 }
 
+// first payload should be voiceUpdate
 async fn handle_websocket(websocket: warp::ws::WebSocket, mut client: Client) {
-    let (mut sender, mut receiver) = websocket.split();
+    let (mut tx, mut rx) = websocket.split();
 
-    // first payload should be voiceUpdate
-    let voice_update = if let Some(msg) = receiver.next().await {
-        let msg = match msg {
-            Ok(msg) => msg,
-            Err(e) => {
-                eprintln!("Websocket error: {}", e);
-                return
-            },
-        };
-        let payload = match serde_json::from_slice::<Payload>(&msg.as_bytes()) {
-            Ok(payload) => payload,
-            Err(e) => {
-                eprintln!("Error deserializing payload: {}", e);
-                return
-            },
-        };
-        match payload {
-            Payload::VoiceUpdate(voice_update) => voice_update,
-            _ => {
-                eprintln!("First payload should be voiceUpdate");
-                return
-            },
+    let payload = match handle_message(&mut rx).await {
+        Some(payload) => payload,
+        None => return,
+    };
+
+    let voice_update = match payload {
+        Payload::VoiceUpdate(voice_update) => {
+            if voice_update.event.endpoint.is_none() {
+                eprintln!("No endpoint provided");
+                return;
+            }
+            voice_update
         }
-    } else {
-        eprintln!("websocket closed?");
-        return
+        _ => {
+            eprintln!("First payload should be voiceUpdate");
+            return;
+        }
     };
 
     let player = Player::from(voice_update);
     client.add_player(player);
 
-    while let Some(msg) = receiver.next().await {
+    // handler for this player
+    tokio::spawn(async move {
+        while let Some(payload) = handle_message(&mut rx).await {
+            println!("payload: {:?}", payload);
+            tx.send(Message::text(format!("received payload: {:?}", payload))).await;
+            handle_payload(payload);
+        }
+    });
+
+}
+
+async fn handle_message(rx: &mut SplitStream<WebSocket>) -> Option<Payload> {
+    if let Some(msg) = rx.next().await {
         let msg = match msg {
             Ok(msg) => msg,
             Err(e) => {
                 eprintln!("websocket error: {}", e);
-                break;
+                return None;
             }
         };
         let payload: Result<Payload, Error> = serde_json::from_slice(&msg.as_bytes());
         match payload {
             Ok(payload) => {
                 println!("payload: {:?}", payload);
-                handle_payload(payload);
-                sender.send(msg).await.unwrap();
+                Some(payload)
             }
             Err(e) => {
                 eprintln!("Error deserializing payload: {}", e);
+                return None;
             }
         }
+    } else {
+        eprintln!("websocket closed?");
+        return None;
     }
 }
 
