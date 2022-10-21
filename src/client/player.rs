@@ -28,7 +28,7 @@ impl Player {
     ) -> Result<Self, Error> {
         if let Some(endpoint) = voice_update.event.endpoint {
             Ok(Self {
-                guild_id: voice_update.guild_id,
+                guild_id: voice_update.event.guild_id,
                 session_id: voice_update.session_id,
                 token: voice_update.event.token,
                 endpoint: endpoint,

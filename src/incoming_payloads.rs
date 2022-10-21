@@ -31,7 +31,6 @@ pub enum Opcode {
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct VoiceUpdate {
-    pub guild_id: Snowflake,
     pub session_id: Snowflake,
     pub event: VoiceUpdateEvent,
 }
@@ -49,7 +48,6 @@ pub struct VoiceUpdateEvent {
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Play {
-    pub guild_id: Snowflake,
     pub track: String,
     #[serde(with = "serde_millis")]
     pub start_time: Option<Duration>,
@@ -63,20 +61,17 @@ pub struct Play {
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Stop {
-    pub guild_id: Snowflake,
 }
 
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Pause {
-    pub guild_id: Snowflake,
     pub pause: bool,
 }
 
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Seek {
-    pub guild_id: Snowflake,
     #[serde(with = "serde_millis")]
     pub position: Duration,
 }
@@ -84,14 +79,12 @@ pub struct Seek {
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Volume {
-    pub guild_id: Snowflake,
     pub volume: i16,
 }
 
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Filters {
-    pub guild_id: Snowflake,
     pub volume: Option<f64>,
     pub equalizer: Option<Vec<EqualizerObject>>,
     pub karaoke: Option<Karaoke>,
@@ -106,5 +99,4 @@ pub struct Filters {
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Destroy {
-    pub guild_id: Snowflake,
 }

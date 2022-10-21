@@ -1,9 +1,9 @@
-use futures_util::stream::{SplitStream, SplitSink};
+use futures_util::stream::{SplitSink, SplitStream};
 use jukebox::client::player::Player;
 use serde_json::Error;
-use tokio::sync::mpsc::unbounded_channel;
 use std::collections::HashMap;
 use std::sync::Arc;
+use tokio::sync::mpsc::unbounded_channel;
 use warp::ws::{Message, WebSocket};
 
 use futures_util::{SinkExt, StreamExt};
@@ -11,7 +11,7 @@ use tokio::sync::{mpsc, RwLock};
 use warp::Filter;
 
 use jukebox::client::{Client, Headers};
-use jukebox::{Payload, VoiceUpdate, Opcode};
+use jukebox::{Opcode, Payload, VoiceUpdate};
 
 const PASSWORD: &str = "youshallnotpass";
 
@@ -29,7 +29,8 @@ async fn main() {
         .and(warp::header::<String>("User-Id"))
         .and(warp::header::<String>("Client-Name"))
         .and_then(|authorization, user_id, client_name| async move {
-            if let Some(headers) = Headers::new(authorization, user_id, client_name).verify(PASSWORD)
+            if let Some(headers) =
+                Headers::new(authorization, user_id, client_name).verify(PASSWORD)
             {
                 Ok(headers)
             } else {
@@ -97,15 +98,17 @@ async fn handle_websocket(websocket: warp::ws::WebSocket, headers: Headers) {
         match payload.op {
             Opcode::VoiceUpdate(voice_update) => create_player(client.clone(), voice_update).await,
             _ => {
+                println!("recieved");
                 match client.get_player_sender(&payload.guild_id).await {
-                    Some(sender) => {
-                        sender.send(payload);
-                    },
+                    // receiver will never be dropped so long as player is alive
+                    Some(sender) => sender.send(payload).unwrap(),
                     None => {
-                        client.send(Message::text("No player associated with this guild_id"));
+                        client
+                            .send(Message::text("No player associated with this guild_id"))
+                            .await
                     }
                 }
-            },
+            }
         }
     }
 }
@@ -114,18 +117,32 @@ async fn create_player(client: Arc<Client>, voice_update: VoiceUpdate) {
     let (tx, mut rx) = unbounded_channel();
     let player = match Player::new(voice_update, tx) {
         Ok(player) => player,
-        Err(e) => { eprintln!("{}", e); return; }
+        Err(e) => {
+            eprintln!("{}", e);
+            return;
+        }
     };
     client.add_player(player).await;
+
+    let weak_client = Arc::downgrade(&client);
 
     // handler for this player
     tokio::spawn(async move {
         while let Some(payload) = rx.recv().await {
             println!("payload: {:?}", payload);
-            client.send(Message::text(format!("received payload: {:?}", payload))).await;
-            handle_payload(payload);
+            if let Some(client) = weak_client.upgrade() {
+                client
+                    .send(Message::text(format!("received payload: {:?}", payload)))
+                    .await;
+                handle_payload(payload);
+            } else {
+                // this code is never reached which is ok
+                println!("client dropped");
+                break;
+            }
         }
-    }).await.unwrap();
+        println!("end reached")
+    });
 }
 
 async fn handle_message(rx: &mut SplitStream<WebSocket>) -> Option<Payload> {

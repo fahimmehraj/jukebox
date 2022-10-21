@@ -61,6 +61,10 @@ impl Client {
         self.players.write().await.insert(player.guild_id(), player);
     }
 
+    pub async fn remove_player(&self, guild_id: &str) {
+        self.players.write().await.remove(guild_id);
+    }
+
     pub async fn get_player_sender(&self, guild_id: &str) -> Option<UnboundedSender<Payload>> {
         match self.players.read().await.get(guild_id) {
             Some(player) => Some(player.sender()),
@@ -69,6 +73,8 @@ impl Client {
     }
 
     pub async fn send(&self, message: Message) {
-        self.sender.write().await.send(message);
+        if let Err(e) = self.sender.write().await.send(message).await {
+            println!("Error sending message: {}", e);
+        }
     } 
 }
