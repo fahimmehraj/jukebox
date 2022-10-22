@@ -1,16 +1,15 @@
-use futures_util::stream::SplitStream;
-use serde_json::Error;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::mpsc::unbounded_channel;
-use warp::ws::{Message, WebSocket};
 
+use futures_util::stream::SplitStream;
 use futures_util::StreamExt;
+use warp::ws::{Message, WebSocket};
 use warp::Filter;
+use tokio::sync::mpsc::unbounded_channel;
 
+use jukebox::client::payloads::{Opcode, Payload, VoiceUpdate};
 use jukebox::client::player::Player;
 use jukebox::client::{Client, Headers};
-use jukebox::client::payloads::{Opcode, Payload, VoiceUpdate};
 
 const PASSWORD: &str = "youshallnotpass";
 
@@ -153,8 +152,7 @@ async fn handle_message(rx: &mut SplitStream<WebSocket>) -> Option<Payload> {
                 return None;
             }
         };
-        let payload: Result<Payload, Error> = serde_json::from_slice(&msg.as_bytes());
-        match payload {
+        match serde_json::from_slice(&msg.as_bytes()) {
             Ok(payload) => {
                 println!("payload: {:?}", payload);
                 Some(payload)

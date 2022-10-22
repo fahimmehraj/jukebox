@@ -1,7 +1,8 @@
 mod transformations;
 
-use serde::Deserialize;
 use std::time::Duration;
+
+use serde::Deserialize;
 use transformations::*;
 
 #[derive(Deserialize, Debug)]
