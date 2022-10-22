@@ -4,31 +4,51 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "camelCase")]
 #[serde(tag = "op", content = "d")]
 pub enum Payload {
+    #[serde(skip_deserializing)]
     #[serde(rename = "0")]
     Identify(Identify),
+
+    #[serde(skip_deserializing)]
     #[serde(rename = "1")]
     SelectProtocol(SelectProtocol),
+
+    #[serde(skip_serializing)]
     #[serde(rename = "2")]
     Ready(Ready),
+
+    #[serde(skip_deserializing)]
     #[serde(rename = "3")]
     Heartbeat(Heartbeat),
+
+    #[serde(skip_serializing)]
     #[serde(rename = "4")]
     SessionDescription(SessionDescription),
+
     #[serde(rename = "5")]
     Speaking(Speaking),
+
+    #[serde(skip_serializing)]
     #[serde(rename = "6")]
     HeartbeatACK(HeartbeatACK),
+
+    #[serde(skip_deserializing)]
     #[serde(rename = "7")]
     Resume(Resume),
+
+    #[serde(skip_serializing)]
     #[serde(rename = "8")]
     Hello(Hello),
+
+    #[serde(skip_serializing)]
     #[serde(rename = "9")]
     Resumed,
+
+    #[serde(skip_serializing)]
     #[serde(rename = "13")]
     ClientDisconnect(ClientDisconnect),
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Identify {
     pub server_id: String,
@@ -37,14 +57,14 @@ pub struct Identify {
     pub token: String,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct SelectProtocol {
     pub protocol: String,
     pub data: SelectProtocolData,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct SelectProtocolData {
     pub address: String,
@@ -52,7 +72,7 @@ pub struct SelectProtocolData {
     pub mode: String,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Ready {
     pub ssrc: u32,
@@ -62,13 +82,13 @@ pub struct Ready {
     pub heartbeat_interval: u64,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Heartbeat {
     pub nonce: u64,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionDescription {
     pub mode: String,
@@ -83,13 +103,13 @@ pub struct Speaking {
     pub ssrc: u32,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct HeartbeatACK {
     pub nonce: u64,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Resume {
     pub server_id: String,
@@ -97,7 +117,7 @@ pub struct Resume {
     pub token: String,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Hello {
     pub heartbeat_interval: u64,
@@ -106,7 +126,7 @@ pub struct Hello {
 // Resumed has no data
 
 // i am not sure what fields opcode 13 actually has
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct ClientDisconnect {
     pub reason: String,
