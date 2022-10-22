@@ -373,6 +373,7 @@ dependencies = [
  "serde_json",
  "serde_millis",
  "tokio",
+ "tokio-tungstenite",
  "warp",
 ]
 

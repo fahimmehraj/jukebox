@@ -1,3 +1,4 @@
+pub mod payloads;
 pub mod player;
 
 use std::collections::HashMap;
@@ -7,7 +8,7 @@ use player::Player;
 use tokio::sync::{RwLock, mpsc::UnboundedSender};
 use warp::ws::{WebSocket, Message};
 
-use crate::Payload;
+use payloads::Payload;
 
 pub struct Headers {
     authorization: String,

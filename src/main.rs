@@ -1,17 +1,16 @@
-use futures_util::stream::{SplitSink, SplitStream};
-use jukebox::client::player::Player;
+use futures_util::stream::SplitStream;
 use serde_json::Error;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc::unbounded_channel;
 use warp::ws::{Message, WebSocket};
 
-use futures_util::{SinkExt, StreamExt};
-use tokio::sync::{mpsc, RwLock};
+use futures_util::StreamExt;
 use warp::Filter;
 
+use jukebox::client::player::Player;
 use jukebox::client::{Client, Headers};
-use jukebox::{Opcode, Payload, VoiceUpdate};
+use jukebox::client::payloads::{Opcode, Payload, VoiceUpdate};
 
 const PASSWORD: &str = "youshallnotpass";
 

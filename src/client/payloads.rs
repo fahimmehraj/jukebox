@@ -4,8 +4,6 @@ use serde::Deserialize;
 use std::time::Duration;
 use transformations::*;
 
-type Snowflake = String;
-
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Payload {
@@ -31,7 +29,7 @@ pub enum Opcode {
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct VoiceUpdate {
-    pub session_id: Snowflake,
+    pub session_id: String,
     pub event: VoiceUpdateEvent,
 }
 
@@ -39,7 +37,7 @@ pub struct VoiceUpdate {
 #[serde(rename_all = "camelCase")]
 pub struct VoiceUpdateEvent {
     pub token: String,
-    pub guild_id: Snowflake,
+    pub guild_id: String,
     pub endpoint: Option<String>,
 }
 

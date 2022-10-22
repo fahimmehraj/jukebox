@@ -5,7 +5,7 @@ use std::{
 
 use tokio::sync::mpsc::UnboundedSender;
 
-use crate::{incoming_payloads::VoiceUpdate, Payload};
+use super::payloads::{Payload, VoiceUpdate};
 
 pub struct Player {
     guild_id: String,
