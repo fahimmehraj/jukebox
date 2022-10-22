@@ -3,14 +3,16 @@ use std::sync::Arc;
 
 use futures_util::stream::SplitStream;
 use futures_util::StreamExt;
+use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
 use tokio_tungstenite::connect_async;
 use warp::ws::{Message, WebSocket};
 use warp::Filter;
-use tokio::sync::mpsc::unbounded_channel;
 
-use jukebox::client::payloads::{Opcode, Payload, VoiceUpdate};
+use jukebox::client::payloads::{Opcode, Payload as ClientPayload, VoiceUpdate};
 use jukebox::client::player::Player;
 use jukebox::client::{Client, Headers};
+
+use jukebox::discord::payloads::{Identify, Payload as DiscordPayload};
 
 const PASSWORD: &str = "youshallnotpass";
 
@@ -93,9 +95,23 @@ async fn handle_websocket(websocket: warp::ws::WebSocket, headers: Headers) {
     let (tx, mut rx) = websocket.split();
     let client = Arc::new(Client::new(headers, tx));
 
+    let (player_tx, mut player_rx) = unbounded_channel::<String>();
+
+    let weak_client = Arc::downgrade(&client);
+    tokio::spawn(async move {
+        while let Some(msg) = player_rx.recv().await {
+            eprintln!("{:?}", msg);
+            if let Some(client) = weak_client.upgrade() {
+                client.send(Message::text(msg)).await;
+            }
+        }
+    });
+
     while let Some(payload) = handle_message(&mut rx).await {
         match payload.op {
-            Opcode::VoiceUpdate(voice_update) => create_player(client.clone(), voice_update).await,
+            Opcode::VoiceUpdate(voice_update) => {
+                create_player(client.clone(), player_tx.clone(), voice_update).await
+            }
             _ => {
                 println!("recieved");
                 match client.get_player_sender(&payload.guild_id).await {
@@ -112,21 +128,16 @@ async fn handle_websocket(websocket: warp::ws::WebSocket, headers: Headers) {
     }
 }
 
-async fn create_player(client: Arc<Client>, voice_update: VoiceUpdate) {
+async fn create_player(
+    client: Arc<Client>,
+    player_tx: UnboundedSender<String>,
+    voice_update: VoiceUpdate,
+) {
     let (tx, mut rx) = unbounded_channel();
-    let player = match Player::new(voice_update, tx) {
+    let player = match Player::new(client.id(), voice_update, tx, player_tx).await {
         Ok(player) => player,
         Err(e) => {
             eprintln!("{}", e);
-            return;
-        }
-    };
-    let url = url::Url::parse(&format!("wss://{}", player.endpoint())).unwrap();
-    let (ws_read, ws_write) = match connect_async(url).await {
-        Ok((ws_stream, _)) => ws_stream.split(),
-        Err(e) => {
-            eprintln!("Could not connect to voice endpoint, {}", e);
-            client.send(Message::text("Could not connect to voice endpoint.")).await;
             return;
         }
     };
@@ -153,7 +164,7 @@ async fn create_player(client: Arc<Client>, voice_update: VoiceUpdate) {
     });
 }
 
-async fn handle_message(rx: &mut SplitStream<WebSocket>) -> Option<Payload> {
+async fn handle_message(rx: &mut SplitStream<WebSocket>) -> Option<ClientPayload> {
     if let Some(msg) = rx.next().await {
         let msg = match msg {
             Ok(msg) => msg,
@@ -178,7 +189,7 @@ async fn handle_message(rx: &mut SplitStream<WebSocket>) -> Option<Payload> {
     }
 }
 
-fn handle_payload(payload: Payload) {
+fn handle_payload(payload: ClientPayload) {
     match payload.op {
         Opcode::VoiceUpdate(voice_update) => {
             println!("VoiceUpdate: {:?}", voice_update);

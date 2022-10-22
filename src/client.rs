@@ -1,7 +1,7 @@
 pub mod payloads;
 pub mod player;
 
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 use futures_util::{stream::SplitSink, SinkExt};
 use player::Player;
@@ -36,7 +36,7 @@ impl Headers {
 pub struct Client {
     user_id: String,
     client_name: String,
-    players: RwLock<HashMap<String, Player>>,
+    players: RwLock<HashMap<String, Arc<RwLock<Player>>>>,
     sender: RwLock<SplitSink<WebSocket, Message>>
 }
 
@@ -59,16 +59,20 @@ impl Client {
     }
 
     pub async fn add_player(&self, player: Player) {
-        self.players.write().await.insert(player.guild_id(), player);
+        self.players.write().await.insert(player.guild_id(), Arc::new(RwLock::new(player)));
     }
 
     pub async fn remove_player(&self, guild_id: &str) {
         self.players.write().await.remove(guild_id);
     }
 
+    pub async fn get_player(&self, guild_id: &str) -> Option<Arc<RwLock<Player>>> {
+        self.players.read().await.get(guild_id).cloned()
+    }
+
     pub async fn get_player_sender(&self, guild_id: &str) -> Option<UnboundedSender<Payload>> {
         match self.players.read().await.get(guild_id) {
-            Some(player) => Some(player.sender()),
+            Some(player) => Some(player.read().await.sender()),
             None => None,
         }
     }

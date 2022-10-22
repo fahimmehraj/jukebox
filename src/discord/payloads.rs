@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use tokio_tungstenite::tungstenite::Message;
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -46,6 +47,12 @@ pub enum Payload {
     #[serde(skip_serializing)]
     #[serde(rename = "13")]
     ClientDisconnect(ClientDisconnect),
+}
+
+impl From<Payload> for Message {
+    fn from(payload: Payload) -> Self {
+        Message::Text(serde_json::to_string(&payload).unwrap())
+    }
 }
 
 #[derive(Serialize, Debug)]
