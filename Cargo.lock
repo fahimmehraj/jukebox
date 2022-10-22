@@ -374,6 +374,7 @@ dependencies = [
  "serde_millis",
  "tokio",
  "tokio-tungstenite",
+ "url",
  "warp",
 ]
 

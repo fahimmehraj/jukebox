@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use futures_util::stream::SplitStream;
 use futures_util::StreamExt;
+use tokio_tungstenite::connect_async;
 use warp::ws::{Message, WebSocket};
 use warp::Filter;
 use tokio::sync::mpsc::unbounded_channel;
@@ -117,6 +118,15 @@ async fn create_player(client: Arc<Client>, voice_update: VoiceUpdate) {
         Ok(player) => player,
         Err(e) => {
             eprintln!("{}", e);
+            return;
+        }
+    };
+    let url = url::Url::parse(&format!("wss://{}", player.endpoint())).unwrap();
+    let (ws_read, ws_write) = match connect_async(url).await {
+        Ok((ws_stream, _)) => ws_stream.split(),
+        Err(e) => {
+            eprintln!("Could not connect to voice endpoint, {}", e);
+            client.send(Message::text("Could not connect to voice endpoint.")).await;
             return;
         }
     };
