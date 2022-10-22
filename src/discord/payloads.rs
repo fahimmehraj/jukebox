@@ -2,8 +2,30 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
+#[serde(tag = "op", content = "d")]
 pub enum Payload {
+    #[serde(rename = "0")]
     Identify(Identify),
+    #[serde(rename = "1")]
+    SelectProtocol(SelectProtocol),
+    #[serde(rename = "2")]
+    Ready(Ready),
+    #[serde(rename = "3")]
+    Heartbeat(Heartbeat),
+    #[serde(rename = "4")]
+    SessionDescription(SessionDescription),
+    #[serde(rename = "5")]
+    Speaking(Speaking),
+    #[serde(rename = "6")]
+    HeartbeatACK(HeartbeatACK),
+    #[serde(rename = "7")]
+    Resume(Resume),
+    #[serde(rename = "8")]
+    Hello(Hello),
+    #[serde(rename = "9")]
+    Resumed,
+    #[serde(rename = "13")]
+    ClientDisconnect(ClientDisconnect),
 }
 
 #[derive(Serialize, Deserialize, Debug)]
