@@ -1,14 +1,38 @@
 use std::{
     io::{Error, ErrorKind},
+    sync::Arc,
     time::Duration,
 };
 
-use futures_util::SinkExt;
-use tokio::{net::TcpStream, sync::mpsc::UnboundedSender};
-use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
+use futures_util::{
+    stream::{SplitSink, SplitStream},
+    SinkExt, StreamExt,
+};
+use tokio::{
+    net::TcpStream,
+    sync::{
+        mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender},
+        RwLock,
+    },
+};
+use tokio_tungstenite::{
+    connect_async,
+    tungstenite::{Error as WebsocketError, Message},
+    MaybeTlsStream,
+};
 
-use super::super::discord::payloads::{Payload as DiscordPayload, Identify};
-use super::payloads::{Payload as ClientPayload, VoiceUpdate};
+use crate::{
+    crypto::EncryptionMode,
+    discord::payloads::{Hello, SessionDescription},
+    utils::handle_message,
+};
+
+use super::super::discord::payloads::{
+    DiscordPayload, Identify, SelectProtocol, SelectProtocolData,
+};
+use super::payloads::{ClientPayload, VoiceUpdate};
+
+type WebSocketStream = tokio_tungstenite::WebSocketStream<MaybeTlsStream<TcpStream>>;
 
 pub struct Player {
     user_id: String,
@@ -16,9 +40,15 @@ pub struct Player {
     session_id: String,
     token: String,
     endpoint: String,
-    ws_stream: WebSocketStream<MaybeTlsStream<TcpStream>>,
+    ws_write: SplitSink<WebSocketStream, Message>,
+    ws_read: SplitStream<WebSocketStream>,
+    /// A handle for sending payloads from the client to this player
     sender: UnboundedSender<ClientPayload>,
+    /// A handle for receiving payloads from the client to this player
+    receiver: UnboundedReceiver<ClientPayload>,
+    /// A handle for sending payloads from this player to the client
     client_sender: UnboundedSender<String>,
+    connection_details: Option<ConnectionDetails>,
     track: Option<String>,
     start_time: Option<Duration>,
     end_time: Option<Duration>,
@@ -27,26 +57,40 @@ pub struct Player {
     pause: Option<bool>,
 }
 
+#[derive(Clone, Default)]
+struct ConnectionDetails {
+    ssrc: Option<u32>,
+    ip: Option<String>,
+    port: Option<u16>,
+    mode: Option<EncryptionMode>,
+    possible_modes: Option<Vec<EncryptionMode>>,
+    heartbeat_interval: Option<Duration>,
+    secret_key: Option<[u8; 32]>,
+}
+
 impl Player {
     pub async fn new(
         user_id: String,
         voice_update: VoiceUpdate,
-        tx: UnboundedSender<ClientPayload>,
         player_tx: UnboundedSender<String>,
     ) -> Result<Self, Error> {
         if let Some(endpoint) = voice_update.event.endpoint {
-            let url = url::Url::parse(&format!("wss://{}", endpoint.clone())).unwrap();
+            let url = url::Url::parse(&format!("wss://{}?v=4", endpoint.clone())).unwrap();
             let ws_stream = match connect_async(url).await {
                 Ok((ws_stream, _)) => ws_stream,
                 Err(e) => {
                     eprintln!("Could not connect to voice endpoint, {}", e);
-                    player_tx.send(format!("Could not connect to voice endpoint, {}", e)).unwrap();
+                    player_tx
+                        .send(format!("Could not connect to voice endpoint, {}", e))
+                        .unwrap();
                     return Err(Error::new(
                         ErrorKind::ConnectionRefused,
                         "Could not connect to voice endpoint.",
                     ));
                 }
             };
+            let (ws_write, ws_read) = ws_stream.split();
+            let (tx, rx) = unbounded_channel();
             Ok(Self {
                 user_id,
                 guild_id: voice_update.event.guild_id,
@@ -54,8 +98,11 @@ impl Player {
                 token: voice_update.event.token,
                 endpoint,
                 sender: tx,
+                receiver: rx,
                 client_sender: player_tx,
-                ws_stream,
+                ws_write,
+                ws_read,
+                connection_details: None,
                 track: None,
                 start_time: None,
                 end_time: None,
@@ -71,12 +118,32 @@ impl Player {
         }
     }
 
-    async fn init(&mut self) {
-        self.send(DiscordPayload::Identify(self.derive_idenitfy_payload())).await;
+    pub async fn start(mut self) -> Result<(), WebsocketError> {
+        // Send the identify payload
+        // Receive Ready payload
+        // Send Select Protocol payload
+        // Receive Session Description payload
 
+        self.send(DiscordPayload::Identify(self.identify_payload()))
+            .await?;
+
+        tokio::spawn(async move {
+            while let Some(payload) =
+                handle_message::<_, _, _, DiscordPayload>(&mut self.ws_read).await
+            {
+                self.handle_discord_payload(payload).await;
+            }
+            let client_listener = tokio::spawn(async move {
+                while let Some(payload) = self.receiver.recv().await {
+                    println!("payload: {:?}", payload);
+                }
+            });
+        });
+
+        Ok(())
     }
 
-    fn derive_idenitfy_payload(&self) -> Identify {
+    fn identify_payload(&self) -> Identify {
         Identify {
             server_id: self.guild_id(),
             user_id: self.user_id(),
@@ -85,14 +152,71 @@ impl Player {
         }
     }
 
-    async fn send(&mut self, payload: DiscordPayload) -> Result<(), tokio_tungstenite::tungstenite::Error> {
+    fn select_protocol_payload(&self) -> Result<SelectProtocol, Error> {
+        if let Some(connection_details) = self.connection_details {
+            if let Some(possible_modes) = connection_details.possible_modes {
+                let mode = possible_modes
+                    .iter()
+                    .find(|mode| mode == &&EncryptionMode::XSalsa20Poly1305)
+                    .unwrap_or(&EncryptionMode::XSalsa20Poly1305);
+                Ok(SelectProtocol {
+                    protocol: "udp".to_string(),
+                    data: SelectProtocolData {
+                        address: connection_details.ip.unwrap(),
+                        port: connection_details.port.unwrap(),
+                        mode: mode.to_string(),
+                    },
+                })
+            } else {
+                Err(Error::new(
+                    ErrorKind::ConnectionAborted,
+                    "No possible modes provided",
+                ))
+            }
+        } else {
+            Err(Error::new(
+                ErrorKind::ConnectionAborted,
+                "No connection details provided",
+            ))
+        }
+    }
+
+    async fn send(&mut self, payload: DiscordPayload) -> Result<(), WebsocketError> {
         let message = serde_json::to_string(&payload).unwrap();
-        self.ws_stream.send(message.into()).await
+        self.ws_write.send(message.into()).await
         // if let Err(e) = self.ws_stream.send(message.into()).await {
         //     eprintln!("Could not send payload, {}", e);
         //     self.client_sender
         //         .send(format!("Could not send payload, {}", e));
         // };
+    }
+
+    async fn handle_discord_payload(&mut self, payload: DiscordPayload) {
+        match payload {
+            DiscordPayload::Ready(payload) => {
+                self.connection_details = Some(ConnectionDetails {
+                    ssrc: Some(payload.ssrc),
+                    ip: Some(payload.ip),
+                    port: Some(payload.port),
+                    possible_modes: Some(payload.modes),
+                    ..self.connection_details.clone().unwrap_or_default()
+                })
+            }
+            DiscordPayload::Hello(payload) => {
+                self.connection_details = Some(ConnectionDetails {
+                    heartbeat_interval: Some(Duration::from_millis(payload.heartbeat_interval)),
+                    ..self.connection_details.clone().unwrap_or_default()
+                })
+            }
+            DiscordPayload::SessionDescription(payload) => {
+                self.connection_details = Some(ConnectionDetails {
+                    mode: Some(payload.mode),
+                    secret_key: Some(payload.secret_key),
+                    ..self.connection_details.clone().unwrap_or_default()
+                })
+            }
+            _ => {}
+        }
     }
 
     pub fn user_id(&self) -> String {

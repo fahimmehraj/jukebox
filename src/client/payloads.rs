@@ -7,10 +7,10 @@ use transformations::*;
 
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
-pub struct Payload {
+pub struct ClientPayload {
     pub guild_id: String,
     #[serde(flatten)]
-    pub op: Opcode
+    pub op: Opcode,
 }
 
 #[derive(Deserialize, Debug)]
@@ -59,8 +59,7 @@ pub struct Play {
 
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
-pub struct Stop {
-}
+pub struct Stop {}
 
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -97,5 +96,4 @@ pub struct Filters {
 
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
-pub struct Destroy {
-}
+pub struct Destroy {}

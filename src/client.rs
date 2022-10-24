@@ -5,10 +5,10 @@ use std::{collections::HashMap, sync::Arc};
 
 use futures_util::{stream::SplitSink, SinkExt};
 use player::Player;
-use tokio::sync::{RwLock, mpsc::UnboundedSender};
-use warp::ws::{WebSocket, Message};
+use tokio::sync::{mpsc::UnboundedSender, RwLock};
+use warp::ws::{Message, WebSocket};
 
-use payloads::Payload;
+use payloads::ClientPayload;
 
 pub struct Headers {
     authorization: String,
@@ -27,7 +27,7 @@ impl Headers {
 
     pub fn verify(self, authorization: &str) -> Option<Self> {
         if self.authorization != authorization {
-            return None
+            return None;
         }
         Some(self)
     }
@@ -37,7 +37,7 @@ pub struct Client {
     user_id: String,
     client_name: String,
     players: RwLock<HashMap<String, Arc<RwLock<Player>>>>,
-    sender: RwLock<SplitSink<WebSocket, Message>>
+    sender: RwLock<SplitSink<WebSocket, Message>>,
 }
 
 impl Client {
@@ -59,7 +59,10 @@ impl Client {
     }
 
     pub async fn add_player(&self, player: Player) {
-        self.players.write().await.insert(player.guild_id(), Arc::new(RwLock::new(player)));
+        self.players
+            .write()
+            .await
+            .insert(player.guild_id(), Arc::new(RwLock::new(player)));
     }
 
     pub async fn remove_player(&self, guild_id: &str) {
@@ -70,7 +73,10 @@ impl Client {
         self.players.read().await.get(guild_id).cloned()
     }
 
-    pub async fn get_player_sender(&self, guild_id: &str) -> Option<UnboundedSender<Payload>> {
+    pub async fn get_player_sender(
+        &self,
+        guild_id: &str,
+    ) -> Option<UnboundedSender<ClientPayload>> {
         match self.players.read().await.get(guild_id) {
             Some(player) => Some(player.read().await.sender()),
             None => None,
@@ -81,5 +87,5 @@ impl Client {
         if let Err(e) = self.sender.write().await.send(message).await {
             println!("Error sending message: {}", e);
         }
-    } 
+    }
 }

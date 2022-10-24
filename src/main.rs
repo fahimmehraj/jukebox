@@ -3,16 +3,17 @@ use std::sync::Arc;
 
 use futures_util::stream::SplitStream;
 use futures_util::StreamExt;
+use jukebox::utils::handle_message;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
 use tokio_tungstenite::connect_async;
 use warp::ws::{Message, WebSocket};
 use warp::Filter;
 
-use jukebox::client::payloads::{Opcode, Payload as ClientPayload, VoiceUpdate};
+use jukebox::client::payloads::{ClientPayload, Opcode, VoiceUpdate};
 use jukebox::client::player::Player;
 use jukebox::client::{Client, Headers};
 
-use jukebox::discord::payloads::{Identify, Payload as DiscordPayload};
+use jukebox::discord::payloads::{DiscordPayload, Identify};
 
 const PASSWORD: &str = "youshallnotpass";
 
@@ -107,10 +108,13 @@ async fn handle_websocket(websocket: warp::ws::WebSocket, headers: Headers) {
         }
     });
 
-    while let Some(payload) = handle_message(&mut rx).await {
+    while let Some(payload) =
+        // jesus
+        handle_message::<_, _, _, ClientPayload>(&mut rx).await
+    {
         match payload.op {
             Opcode::VoiceUpdate(voice_update) => {
-                create_player(client.clone(), player_tx.clone(), voice_update).await
+                tokio::spawn(create_player(client.clone(), player_tx.clone(), voice_update))
             }
             _ => {
                 println!("recieved");
@@ -133,60 +137,30 @@ async fn create_player(
     player_tx: UnboundedSender<String>,
     voice_update: VoiceUpdate,
 ) {
-    let (tx, mut rx) = unbounded_channel();
-    let player = match Player::new(client.id(), voice_update, tx, player_tx).await {
+    let mut player = match Player::new(client.id(), voice_update, player_tx).await {
         Ok(player) => player,
         Err(e) => {
             eprintln!("{}", e);
             return;
         }
     };
+    if let Err(e) = player.start().await {
+        eprintln!("Player Error:, {}", e);
+        return;
+    }
     client.add_player(player).await;
 
-    let weak_client = Arc::downgrade(&client);
+    let example1 = vec!["Priority 2", "Priority 1", "Priority 3"];
+    // should be Priority 1
+    let result: String = example1.into_iter().easy_func(/*stuff */);
 
-    // handler for this player
-    tokio::spawn(async move {
-        while let Some(payload) = rx.recv().await {
-            println!("payload: {:?}", payload);
-            if let Some(client) = weak_client.upgrade() {
-                client
-                    .send(Message::text(format!("received payload: {:?}", payload)))
-                    .await;
-                handle_payload(payload);
-            } else {
-                // this code is never reached which is ok
-                println!("client dropped");
-                break;
-            }
-        }
-        println!("end reached")
-    });
-}
+    let example3 = vec!["Priority 3", "Priority 2"];
+    // result is Priority 2
+    let result: String = example1.into_iter().easy_func(/*stuff */);
 
-async fn handle_message(rx: &mut SplitStream<WebSocket>) -> Option<ClientPayload> {
-    if let Some(msg) = rx.next().await {
-        let msg = match msg {
-            Ok(msg) => msg,
-            Err(e) => {
-                eprintln!("websocket error: {}", e);
-                return None;
-            }
-        };
-        match serde_json::from_slice(&msg.as_bytes()) {
-            Ok(payload) => {
-                println!("payload: {:?}", payload);
-                Some(payload)
-            }
-            Err(e) => {
-                eprintln!("Error deserializing payload: {}", e);
-                return None;
-            }
-        }
-    } else {
-        eprintln!("websocket closed?");
-        return None;
-    }
+    let example4 = vec!["Priority 3"];
+    // result is Priority 3
+    let result: String = example1.into_iter().easy_func(/*stuff */);
 }
 
 fn handle_payload(payload: ClientPayload) {

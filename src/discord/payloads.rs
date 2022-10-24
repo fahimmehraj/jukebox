@@ -1,10 +1,12 @@
 use serde::{Deserialize, Serialize};
 use tokio_tungstenite::tungstenite::Message;
 
+use crate::crypto::EncryptionMode;
+
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 #[serde(tag = "op", content = "d")]
-pub enum Payload {
+pub enum DiscordPayload {
     #[serde(skip_deserializing)]
     #[serde(rename = "0")]
     Identify(Identify),
@@ -49,8 +51,8 @@ pub enum Payload {
     ClientDisconnect(ClientDisconnect),
 }
 
-impl From<Payload> for Message {
-    fn from(payload: Payload) -> Self {
+impl From<DiscordPayload> for Message {
+    fn from(payload: DiscordPayload) -> Self {
         Message::Text(serde_json::to_string(&payload).unwrap())
     }
 }
@@ -76,7 +78,7 @@ pub struct SelectProtocol {
 pub struct SelectProtocolData {
     pub address: String,
     pub port: u16,
-    pub mode: String,
+    pub mode: EncryptionMode,
 }
 
 #[derive(Deserialize, Debug)]
@@ -85,7 +87,7 @@ pub struct Ready {
     pub ssrc: u32,
     pub ip: String,
     pub port: u16,
-    pub modes: Vec<String>,
+    pub modes: Vec<EncryptionMode>,
     pub heartbeat_interval: u64,
 }
 
@@ -98,8 +100,8 @@ pub struct Heartbeat {
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionDescription {
-    pub mode: String,
-    pub secret_key: Vec<u32>,
+    pub mode: EncryptionMode,
+    pub secret_key: [u8; 32],
 }
 
 #[derive(Serialize, Deserialize, Debug)]
