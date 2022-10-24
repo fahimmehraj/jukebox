@@ -1,6 +1,5 @@
 use std::{
     io::{Error, ErrorKind},
-    sync::Arc,
     time::Duration,
 };
 
@@ -10,10 +9,7 @@ use futures_util::{
 };
 use tokio::{
     net::TcpStream,
-    sync::{
-        mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender},
-        RwLock,
-    },
+    sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender},
 };
 use tokio_tungstenite::{
     connect_async,
@@ -21,11 +17,7 @@ use tokio_tungstenite::{
     MaybeTlsStream,
 };
 
-use crate::{
-    crypto::EncryptionMode,
-    discord::payloads::{Hello, SessionDescription},
-    utils::handle_message,
-};
+use crate::{crypto::EncryptionMode, discord::payloads::Ready, utils::handle_message};
 
 use super::super::discord::payloads::{
     DiscordPayload, Identify, SelectProtocol, SelectProtocolData,
@@ -57,13 +49,12 @@ pub struct Player {
     pause: Option<bool>,
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 struct ConnectionDetails {
-    ssrc: Option<u32>,
-    ip: Option<String>,
-    port: Option<u16>,
-    mode: Option<EncryptionMode>,
-    possible_modes: Option<Vec<EncryptionMode>>,
+    ssrc: u32,
+    ip: String,
+    port: u16,
+    mode: EncryptionMode,
     heartbeat_interval: Option<Duration>,
     secret_key: Option<[u8; 32]>,
 }
@@ -143,6 +134,19 @@ impl Player {
         Ok(())
     }
 
+    async fn setup(&mut self) -> Result<(), WebsocketError> {
+        self.send(DiscordPayload::Identify(self.identify_payload()))
+            .await?;
+        while let Some(payload) = handle_message(&mut self.ws_read).await {
+            if let DiscordPayload::Ready(payload) = payload {
+                self.send(DiscordPayload::SelectProtocol(
+                    Self::select_protocol_payload(payload),
+                ));
+            }
+        }
+        Ok(())
+    }
+
     fn identify_payload(&self) -> Identify {
         Identify {
             server_id: self.guild_id(),
@@ -152,34 +156,42 @@ impl Player {
         }
     }
 
-    fn select_protocol_payload(&self) -> Result<SelectProtocol, Error> {
-        if let Some(connection_details) = self.connection_details {
-            if let Some(possible_modes) = connection_details.possible_modes {
-                let mode = possible_modes
-                    .iter()
-                    .find(|mode| mode == &&EncryptionMode::XSalsa20Poly1305)
-                    .unwrap_or(&EncryptionMode::XSalsa20Poly1305);
-                Ok(SelectProtocol {
-                    protocol: "udp".to_string(),
-                    data: SelectProtocolData {
-                        address: connection_details.ip.unwrap(),
-                        port: connection_details.port.unwrap(),
-                        mode: mode.to_string(),
-                    },
-                })
-            } else {
-                Err(Error::new(
-                    ErrorKind::ConnectionAborted,
-                    "No possible modes provided",
-                ))
-            }
-        } else {
-            Err(Error::new(
-                ErrorKind::ConnectionAborted,
-                "No connection details provided",
-            ))
+    fn select_protocol_payload(ready_payload: Ready) -> SelectProtocol {
+        SelectProtocol {
+            protocol: "udp".to_string(),
+            data: SelectProtocolData {
+                address: ready_payload.ip,
+                port: ready_payload.port,
+                mode: ready_payload.modes.into_iter().min().unwrap(),
+            },
         }
     }
+
+    // fn select_protocol_payload(&mut self) -> Result<SelectProtocol, Error> {
+    //     if let Some(mut connection_details) = self.connection_details.as_mut() {
+    //         if let Some(possible_modes) = &connection_details.possible_modes {
+    //             connection_details.mode = Some(possible_modes.iter().min().unwrap().clone());
+    //             Ok(SelectProtocol {
+    //                 protocol: "udp".to_string(),
+    //                 data: SelectProtocolData {
+    //                     address: connection_details.ip.clone().unwrap(),
+    //                     port: connection_details.port.unwrap(),
+    //                     mode: connection_details.mode.unwrap(),
+    //                 },
+    //             })
+    //         } else {
+    //             Err(Error::new(
+    //                 ErrorKind::ConnectionAborted,
+    //                 "No possible modes provided",
+    //             ))
+    //         }
+    //     } else {
+    //         Err(Error::new(
+    //             ErrorKind::ConnectionAborted,
+    //             "No connection details provided",
+    //         ))
+    //     }
+    // }
 
     async fn send(&mut self, payload: DiscordPayload) -> Result<(), WebsocketError> {
         let message = serde_json::to_string(&payload).unwrap();
@@ -195,11 +207,12 @@ impl Player {
         match payload {
             DiscordPayload::Ready(payload) => {
                 self.connection_details = Some(ConnectionDetails {
-                    ssrc: Some(payload.ssrc),
-                    ip: Some(payload.ip),
-                    port: Some(payload.port),
-                    possible_modes: Some(payload.modes),
-                    ..self.connection_details.clone().unwrap_or_default()
+                    ssrc: payload.ssrc,
+                    ip: payload.ip,
+                    port: payload.port,
+                    mode: payload.modes.into_iter().min().unwrap(),
+                    heartbeat_interval: None,
+                    secret_key: None,
                 })
             }
             DiscordPayload::Hello(payload) => {
