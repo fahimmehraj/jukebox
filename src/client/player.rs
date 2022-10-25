@@ -1,11 +1,13 @@
 use std::{
     io::{Error, ErrorKind},
-    time::Duration, net::{SocketAddr, IpAddr}, sync::Arc,
+    net::{IpAddr, SocketAddr},
+    sync::Arc,
+    time::Duration,
 };
 
 use futures_util::{
     stream::{SplitSink, SplitStream},
-    SinkExt, StreamExt,
+    SinkExt, StreamExt, FutureExt,
 };
 use tokio::{
     net::{TcpStream, UdpSocket},
@@ -162,7 +164,6 @@ impl Player {
                         break;
                     }
                 }
-
             } else {
                 self.handle_discord_payload(payload).await;
             }
@@ -179,7 +180,10 @@ impl Player {
         }
     }
 
-    fn select_protocol_payload(modes: Vec<EncryptionMode>, socket_addr: SocketAddr) -> SelectProtocol {
+    fn select_protocol_payload(
+        modes: Vec<EncryptionMode>,
+        socket_addr: SocketAddr,
+    ) -> SelectProtocol {
         SelectProtocol {
             protocol: "udp".to_string(),
             data: SelectProtocolData {
@@ -301,5 +305,44 @@ impl Player {
 
     pub fn sender(&self) -> UnboundedSender<ClientPayload> {
         self.sender.clone()
+    }
+}
+
+struct PlayerGateway {
+    endpoint: String,
+    write: SplitSink<WebSocketStream, Message>,
+    read: SplitStream<WebSocketStream>,
+    heartbeat_interval: Duration,
+}
+
+impl PlayerGateway {
+    async fn new(endpoint: String) -> Result<PlayerGateway, Error> {
+        let url = match url::Url::parse(&format!("wss://{}?v=4", endpoint)) {
+            Ok(url) => url,
+            Err(e) => return Err(Error::new(ErrorKind::InvalidInput, e.to_string())),
+        };
+        let ws_stream = match connect_async(url).await {
+            Ok((ws_stream, _)) => ws_stream,
+            Err(e) => {
+                return Err(Error::new(
+                    ErrorKind::ConnectionRefused,
+                    "Could not connect to voice endpoint.",
+                ));
+            }
+        };
+        let (write, read) = ws_stream.split();
+        Ok(Self {
+            endpoint,
+            write,
+            read,
+            heartbeat_interval: None,
+        })
+    }
+
+    async fn send(&mut self, payload: DiscordPayload) -> Result<(), Error> {
+        if let Err(e) = self.write.send(payload.into()).await {
+            return Err(Error::new(ErrorKind::Other, e.to_string()));
+        }
+        Ok(())
     }
 }
