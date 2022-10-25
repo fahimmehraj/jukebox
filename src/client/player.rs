@@ -1,6 +1,6 @@
 use std::{
     io::{Error, ErrorKind},
-    time::Duration,
+    time::Duration, net::{SocketAddr, IpAddr}, sync::Arc,
 };
 
 use futures_util::{
@@ -8,7 +8,7 @@ use futures_util::{
     SinkExt, StreamExt,
 };
 use tokio::{
-    net::TcpStream,
+    net::{TcpStream, UdpSocket},
     sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender},
 };
 use tokio_tungstenite::{
@@ -41,6 +41,7 @@ pub struct Player {
     /// A handle for sending payloads from this player to the client
     client_sender: UnboundedSender<String>,
     connection_details: Option<ConnectionDetails>,
+    socket: Option<Arc<UdpSocket>>,
     track: Option<String>,
     start_time: Option<Duration>,
     end_time: Option<Duration>,
@@ -52,11 +53,11 @@ pub struct Player {
 #[derive(Clone)]
 struct ConnectionDetails {
     ssrc: u32,
-    ip: String,
+    ip: IpAddr,
     port: u16,
     mode: EncryptionMode,
     heartbeat_interval: Option<Duration>,
-    secret_key: Option<[u8; 32]>,
+    secret_key: [u8; 32],
 }
 
 impl Player {
@@ -94,6 +95,7 @@ impl Player {
                 ws_write,
                 ws_read,
                 connection_details: None,
+                socket: None,
                 track: None,
                 start_time: None,
                 end_time: None,
@@ -138,10 +140,31 @@ impl Player {
         self.send(DiscordPayload::Identify(self.identify_payload()))
             .await?;
         while let Some(payload) = handle_message(&mut self.ws_read).await {
-            if let DiscordPayload::Ready(payload) = payload {
+            if let DiscordPayload::Ready(ready_payload) = payload {
+                let udp_addr: SocketAddr = format!("{}:{}", ready_payload.ip, ready_payload.port)
+                    .parse()
+                    .unwrap();
+                let socket = UdpSocket::bind("0.0.0.0:0").await?;
+                socket.connect(udp_addr).await?;
                 self.send(DiscordPayload::SelectProtocol(
-                    Self::select_protocol_payload(payload),
+                    Self::select_protocol_payload(ready_payload.modes, socket.local_addr()?),
                 ));
+                while let Some(payload) = handle_message(&mut self.ws_read).await {
+                    if let DiscordPayload::SessionDescription(session_desc_payload) = payload {
+                        self.connection_details = Some(ConnectionDetails {
+                            ssrc: ready_payload.ssrc,
+                            ip: socket.local_addr()?.ip(),
+                            port: socket.local_addr()?.port(),
+                            mode: session_desc_payload.mode,
+                            secret_key: session_desc_payload.secret_key,
+                        });
+                        self.socket = Some(Arc::new(socket));
+                        break;
+                    }
+                }
+
+            } else {
+                self.handle_discord_payload(payload).await;
             }
         }
         Ok(())
@@ -156,13 +179,13 @@ impl Player {
         }
     }
 
-    fn select_protocol_payload(ready_payload: Ready) -> SelectProtocol {
+    fn select_protocol_payload(modes: Vec<EncryptionMode>, socket_addr: SocketAddr) -> SelectProtocol {
         SelectProtocol {
             protocol: "udp".to_string(),
             data: SelectProtocolData {
-                address: ready_payload.ip,
-                port: ready_payload.port,
-                mode: ready_payload.modes.into_iter().min().unwrap(),
+                address: socket_addr.ip().to_string(),
+                port: socket_addr.port(),
+                mode: modes.into_iter().min().unwrap(),
             },
         }
     }
