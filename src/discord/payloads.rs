@@ -94,7 +94,7 @@ pub struct Ready {
 #[derive(Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Heartbeat {
-    pub nonce: u64,
+    pub nonce: u128,
 }
 
 #[derive(Deserialize, Debug)]

@@ -1,17 +1,21 @@
 use std::{
     io::{Error, ErrorKind},
     net::{IpAddr, SocketAddr},
-    sync::Arc,
-    time::Duration,
+    sync::{Arc, Weak},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use futures_util::{
     stream::{SplitSink, SplitStream},
-    SinkExt, StreamExt, FutureExt,
+    FutureExt, SinkExt, StreamExt,
 };
 use tokio::{
     net::{TcpStream, UdpSocket},
-    sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender},
+    sync::{
+        mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender},
+        RwLock,
+    },
+    time,
 };
 use tokio_tungstenite::{
     connect_async,
@@ -19,7 +23,11 @@ use tokio_tungstenite::{
     MaybeTlsStream,
 };
 
-use crate::{crypto::EncryptionMode, discord::payloads::Ready, utils::handle_message};
+use crate::{
+    crypto::EncryptionMode,
+    discord::payloads::{Heartbeat, Ready},
+    utils::handle_message,
+};
 
 use super::super::discord::payloads::{
     DiscordPayload, Identify, SelectProtocol, SelectProtocolData,
@@ -308,10 +316,22 @@ impl Player {
     }
 }
 
+struct PlayerConnection {
+    gateway: PlayerGateway,
+    udp: PlayerUDP,
+}
+
+impl PlayerConnection {
+    async fn new(player: &Player) {
+        let gateway = PlayerGateway::new(player.endpoint.clone());
+
+    }
+}
+
 struct PlayerGateway {
     endpoint: String,
-    write: SplitSink<WebSocketStream, Message>,
-    read: SplitStream<WebSocketStream>,
+    write: Arc<RwLock<SplitSink<WebSocketStream, Message>>>,
+    read: RwLock<SplitStream<WebSocketStream>>,
     heartbeat_interval: Duration,
 }
 
@@ -330,19 +350,79 @@ impl PlayerGateway {
                 ));
             }
         };
-        let (write, read) = ws_stream.split();
-        Ok(Self {
-            endpoint,
-            write,
-            read,
-            heartbeat_interval: None,
-        })
+        let (write, mut read) = ws_stream.split();
+        if let Some(payload) = handle_message(&mut read).await {
+            if let DiscordPayload::Hello(payload) = payload {
+                let gateway = Self {
+                    endpoint,
+                    write: Arc::new(RwLock::new(write)),
+                    read: RwLock::new(read),
+                    heartbeat_interval: Duration::from_millis(payload.heartbeat_interval),
+                };
+                gateway.start_heartbeating();
+                Ok(gateway)
+            } else {
+            Err(Error::new(
+                ErrorKind::Unsupported,
+                "Did not receive hello payload first",
+            ))
+            }
+        } else {
+            Err(Error::new(
+                ErrorKind::NotConnected,
+                "Websocket not functioning",
+            ))
+        }
     }
 
-    async fn send(&mut self, payload: DiscordPayload) -> Result<(), Error> {
-        if let Err(e) = self.write.send(payload.into()).await {
+    async fn send(&self, payload: DiscordPayload) -> Result<(), Error> {
+        if let Err(e) = self.write.write().await.send(payload.into()).await {
             return Err(Error::new(ErrorKind::Other, e.to_string()));
         }
         Ok(())
     }
+
+    pub async fn identify(&self, player: &Player) -> Result<(), Error> {
+        let inner_payload = Identify {
+            server_id: player.guild_id(),
+            user_id: player.user_id(),
+            session_id: player.session_id(),
+            token: player.session_id(),
+        };
+        self.send(DiscordPayload::Identify(inner_payload)).await
+    }
+
+    fn heartbeat() -> DiscordPayload {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis();
+        DiscordPayload::Heartbeat(Heartbeat { nonce })
+    }
+
+    fn start_heartbeating(&self) {
+        let weak_sender = Arc::downgrade(&self.write);
+        let heartbeat_interval = self.heartbeat_interval;
+        tokio::spawn(async move {
+            let mut interval = time::interval(heartbeat_interval);
+            loop {
+                interval.tick().await;
+                match weak_sender.upgrade() {
+                    Some(write) => write.write().await.send(Self::heartbeat().into()),
+                    None => {
+                        eprintln!("Websocket writer is dropped");
+                        break;
+                    }
+                };
+            }
+        });
+    }
+}
+
+struct PlayerUDP {
+    ssrc: u32,
+    dest_ip: IpAddr,
+    src_ip: IpAddr,
+    mode: EncryptionMode,
+    secret_key: [u8; 32]
 }
