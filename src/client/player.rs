@@ -9,7 +9,6 @@ use futures_util::{
     stream::{SplitSink, SplitStream},
     FutureExt, SinkExt, StreamExt,
 };
-use pharos::{Channel, Observable, PharErr, Pharos};
 use tokio::{
     net::{TcpStream, UdpSocket},
     sync::{
