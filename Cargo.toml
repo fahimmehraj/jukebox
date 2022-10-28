@@ -16,3 +16,4 @@ futures-util = "0.3.24"
 tokio-tungstenite = { version = "0.17.2", features = ["native-tls"] }
 native-tls = "0.2.10"
 url = "2.3.1"
+pharos = "0.5.3"

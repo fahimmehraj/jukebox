@@ -51,3 +51,35 @@ where
         return None;
     }
 }
+
+pub async fn handle_message_owned<T, M, E, R>(mut rx: SplitStream<T>) -> Option<R>
+where
+    T: Stream,
+    SplitStream<T>: StreamExt<Item = Result<M, E>>,
+    E: Display,
+    M: Representable,
+    R: serde::de::DeserializeOwned + Debug,
+{
+    if let Some(msg ) = rx.next().await {
+        let msg = match msg {
+            Ok(msg) => msg,
+            Err(e) => {
+                eprintln!("websocket error: {}", e);
+                return None;
+            }
+        };
+        match serde_json::from_slice(&msg.represent()[..]) {
+            Ok(payload) => {
+                println!("payload: {:?}", payload);
+                Some(payload)
+            }
+            Err(e) => {
+                eprintln!("Error deserializing payload: {}", e);
+                return None;
+            }
+        }
+    } else {
+        eprintln!("websocket closed?");
+        return None;
+    }
+}

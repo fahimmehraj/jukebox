@@ -9,6 +9,7 @@ use futures_util::{
     stream::{SplitSink, SplitStream},
     FutureExt, SinkExt, StreamExt,
 };
+use pharos::{Channel, Observable, PharErr, Pharos};
 use tokio::{
     net::{TcpStream, UdpSocket},
     sync::{
@@ -42,32 +43,19 @@ pub struct Player {
     session_id: String,
     token: String,
     endpoint: String,
-    ws_write: SplitSink<WebSocketStream, Message>,
-    ws_read: SplitStream<WebSocketStream>,
     /// A handle for sending payloads from the client to this player
     sender: UnboundedSender<ClientPayload>,
     /// A handle for receiving payloads from the client to this player
     receiver: UnboundedReceiver<ClientPayload>,
     /// A handle for sending payloads from this player to the client
     client_sender: UnboundedSender<String>,
-    connection_details: Option<ConnectionDetails>,
-    socket: Option<Arc<UdpSocket>>,
+    player_connection: Option<PlayerConnection>,
     track: Option<String>,
     start_time: Option<Duration>,
     end_time: Option<Duration>,
     volume: Option<i16>,
     no_replace: Option<bool>,
     pause: Option<bool>,
-}
-
-#[derive(Clone)]
-struct ConnectionDetails {
-    ssrc: u32,
-    ip: IpAddr,
-    port: u16,
-    mode: EncryptionMode,
-    heartbeat_interval: Option<Duration>,
-    secret_key: [u8; 32],
 }
 
 impl Player {
@@ -77,21 +65,6 @@ impl Player {
         player_tx: UnboundedSender<String>,
     ) -> Result<Self, Error> {
         if let Some(endpoint) = voice_update.event.endpoint {
-            let url = url::Url::parse(&format!("wss://{}?v=4", endpoint.clone())).unwrap();
-            let ws_stream = match connect_async(url).await {
-                Ok((ws_stream, _)) => ws_stream,
-                Err(e) => {
-                    eprintln!("Could not connect to voice endpoint, {}", e);
-                    player_tx
-                        .send(format!("Could not connect to voice endpoint, {}", e))
-                        .unwrap();
-                    return Err(Error::new(
-                        ErrorKind::ConnectionRefused,
-                        "Could not connect to voice endpoint.",
-                    ));
-                }
-            };
-            let (ws_write, ws_read) = ws_stream.split();
             let (tx, rx) = unbounded_channel();
             Ok(Self {
                 user_id,
@@ -102,10 +75,7 @@ impl Player {
                 sender: tx,
                 receiver: rx,
                 client_sender: player_tx,
-                ws_write,
-                ws_read,
-                connection_details: None,
-                socket: None,
+                player_connection: None,
                 track: None,
                 start_time: None,
                 end_time: None,
@@ -126,57 +96,14 @@ impl Player {
         // Receive Ready payload
         // Send Select Protocol payload
         // Receive Session Description payload
-
-        self.send(DiscordPayload::Identify(self.identify_payload()))
-            .await?;
-
-        tokio::spawn(async move {
-            while let Some(payload) =
-                handle_message::<_, _, _, DiscordPayload>(&mut self.ws_read).await
-            {
-                self.handle_discord_payload(payload).await;
-            }
-            let client_listener = tokio::spawn(async move {
-                while let Some(payload) = self.receiver.recv().await {
-                    println!("payload: {:?}", payload);
-                }
-            });
-        });
-
-        Ok(())
+        if let Err(e) = PlayerConnection::new(&self).await {
+            eprintln!("{}", e);
+        }
+        todo!()
     }
 
     async fn setup(&mut self) -> Result<(), WebsocketError> {
-        self.send(DiscordPayload::Identify(self.identify_payload()))
-            .await?;
-        while let Some(payload) = handle_message(&mut self.ws_read).await {
-            if let DiscordPayload::Ready(ready_payload) = payload {
-                let udp_addr: SocketAddr = format!("{}:{}", ready_payload.ip, ready_payload.port)
-                    .parse()
-                    .unwrap();
-                let socket = UdpSocket::bind("0.0.0.0:0").await?;
-                socket.connect(udp_addr).await?;
-                self.send(DiscordPayload::SelectProtocol(
-                    Self::select_protocol_payload(ready_payload.modes, socket.local_addr()?),
-                ));
-                while let Some(payload) = handle_message(&mut self.ws_read).await {
-                    if let DiscordPayload::SessionDescription(session_desc_payload) = payload {
-                        self.connection_details = Some(ConnectionDetails {
-                            ssrc: ready_payload.ssrc,
-                            ip: socket.local_addr()?.ip(),
-                            port: socket.local_addr()?.port(),
-                            mode: session_desc_payload.mode,
-                            secret_key: session_desc_payload.secret_key,
-                        });
-                        self.socket = Some(Arc::new(socket));
-                        break;
-                    }
-                }
-            } else {
-                self.handle_discord_payload(payload).await;
-            }
-        }
-        Ok(())
+        todo!()
     }
 
     fn identify_payload(&self) -> Identify {
@@ -202,69 +129,8 @@ impl Player {
         }
     }
 
-    // fn select_protocol_payload(&mut self) -> Result<SelectProtocol, Error> {
-    //     if let Some(mut connection_details) = self.connection_details.as_mut() {
-    //         if let Some(possible_modes) = &connection_details.possible_modes {
-    //             connection_details.mode = Some(possible_modes.iter().min().unwrap().clone());
-    //             Ok(SelectProtocol {
-    //                 protocol: "udp".to_string(),
-    //                 data: SelectProtocolData {
-    //                     address: connection_details.ip.clone().unwrap(),
-    //                     port: connection_details.port.unwrap(),
-    //                     mode: connection_details.mode.unwrap(),
-    //                 },
-    //             })
-    //         } else {
-    //             Err(Error::new(
-    //                 ErrorKind::ConnectionAborted,
-    //                 "No possible modes provided",
-    //             ))
-    //         }
-    //     } else {
-    //         Err(Error::new(
-    //             ErrorKind::ConnectionAborted,
-    //             "No connection details provided",
-    //         ))
-    //     }
-    // }
-
     async fn send(&mut self, payload: DiscordPayload) -> Result<(), WebsocketError> {
-        let message = serde_json::to_string(&payload).unwrap();
-        self.ws_write.send(message.into()).await
-        // if let Err(e) = self.ws_stream.send(message.into()).await {
-        //     eprintln!("Could not send payload, {}", e);
-        //     self.client_sender
-        //         .send(format!("Could not send payload, {}", e));
-        // };
-    }
-
-    async fn handle_discord_payload(&mut self, payload: DiscordPayload) {
-        match payload {
-            DiscordPayload::Ready(payload) => {
-                self.connection_details = Some(ConnectionDetails {
-                    ssrc: payload.ssrc,
-                    ip: payload.ip,
-                    port: payload.port,
-                    mode: payload.modes.into_iter().min().unwrap(),
-                    heartbeat_interval: None,
-                    secret_key: None,
-                })
-            }
-            DiscordPayload::Hello(payload) => {
-                self.connection_details = Some(ConnectionDetails {
-                    heartbeat_interval: Some(Duration::from_millis(payload.heartbeat_interval)),
-                    ..self.connection_details.clone().unwrap_or_default()
-                })
-            }
-            DiscordPayload::SessionDescription(payload) => {
-                self.connection_details = Some(ConnectionDetails {
-                    mode: Some(payload.mode),
-                    secret_key: Some(payload.secret_key),
-                    ..self.connection_details.clone().unwrap_or_default()
-                })
-            }
-            _ => {}
-        }
+        todo!()
     }
 
     pub fn user_id(&self) -> String {
@@ -317,27 +183,45 @@ impl Player {
 }
 
 struct PlayerConnection {
-    gateway: PlayerGateway,
-    udp: PlayerUDP,
+    from_gateway: UnboundedReceiver<DiscordPayload>,
+    from_udp: UnboundedReceiver<DiscordPayload>,
 }
 
 impl PlayerConnection {
-    async fn new(player: &Player) {
-        let gateway = PlayerGateway::new(player.endpoint.clone());
-
+    async fn new(player: &Player) -> Result<Self, Error> {
+        let (to_player, from_gateway) = unbounded_channel();
+        let (mut gateway, to_gateway) = PlayerGateway::new(player, to_player).await?;
+        tokio::spawn(async move {
+            if let Err(e) = gateway.run().await {
+                eprintln!("{}", e);
+            }
+        });
+        let (to_player, from_udp) = unbounded_channel();
+        let (mut udp, to_udp) = PlayerUdp::new(player, to_player).await?;
+        tokio::spawn(async move {
+            if let Err(e) = udp.run().await {
+                eprintln!("{}", e);
+            }
+        });
+        todo!()
     }
 }
 
 struct PlayerGateway {
     endpoint: String,
     write: Arc<RwLock<SplitSink<WebSocketStream, Message>>>,
-    read: RwLock<SplitStream<WebSocketStream>>,
-    heartbeat_interval: Duration,
+    read: SplitStream<WebSocketStream>,
+    from_player: UnboundedReceiver<DiscordPayload>,
+    heartbeat_interval: Option<Duration>,
+    to_player: UnboundedSender<DiscordPayload>,
 }
 
 impl PlayerGateway {
-    async fn new(endpoint: String) -> Result<PlayerGateway, Error> {
-        let url = match url::Url::parse(&format!("wss://{}?v=4", endpoint)) {
+    async fn new(
+        player: &Player,
+        tx: UnboundedSender<DiscordPayload>,
+    ) -> Result<(PlayerGateway, UnboundedSender<DiscordPayload>), Error> {
+        let url = match url::Url::parse(&format!("wss://{}?v=4", player.endpoint())) {
             Ok(url) => url,
             Err(e) => return Err(Error::new(ErrorKind::InvalidInput, e.to_string())),
         };
@@ -346,33 +230,22 @@ impl PlayerGateway {
             Err(e) => {
                 return Err(Error::new(
                     ErrorKind::ConnectionRefused,
-                    "Could not connect to voice endpoint.",
-                ));
+                    format!("Failed to connect to gateway: {}", e),
+                ))
             }
         };
-        let (write, mut read) = ws_stream.split();
-        if let Some(payload) = handle_message(&mut read).await {
-            if let DiscordPayload::Hello(payload) = payload {
-                let gateway = Self {
-                    endpoint,
-                    write: Arc::new(RwLock::new(write)),
-                    read: RwLock::new(read),
-                    heartbeat_interval: Duration::from_millis(payload.heartbeat_interval),
-                };
-                gateway.start_heartbeating();
-                Ok(gateway)
-            } else {
-            Err(Error::new(
-                ErrorKind::Unsupported,
-                "Did not receive hello payload first",
-            ))
-            }
-        } else {
-            Err(Error::new(
-                ErrorKind::NotConnected,
-                "Websocket not functioning",
-            ))
-        }
+        let (write, read) = ws_stream.split();
+        let (to_self, from_player) = unbounded_channel();
+        let gateway = Self {
+            endpoint: player.endpoint(),
+            write: Arc::new(RwLock::new(write)),
+            read,
+            heartbeat_interval: None,
+            from_player,
+            to_player: tx,
+        };
+        gateway.identify(player).await?;
+        Ok((gateway, to_self))
     }
 
     async fn send(&self, payload: DiscordPayload) -> Result<(), Error> {
@@ -382,7 +255,82 @@ impl PlayerGateway {
         Ok(())
     }
 
-    pub async fn identify(&self, player: &Player) -> Result<(), Error> {
+    /*
+    pub async fn init(&mut self) -> Result<PlayerUDP, Error> {
+        if let Some(payload) = self.get_next_message().await {
+            if let DiscordPayload::Ready(payload) = payload {
+                let (udp_tx, udp_rx) = unbounded_channel();
+                let dest_addr: SocketAddr = format!("{}:{}", payload.ip, payload.port)
+                    .parse()
+                    .expect("Discord did not provide valid udp address");
+                let mode = payload
+                    .modes
+                    .into_iter()
+                    .min()
+                    .expect("Modes should not be empty");
+                let src_addr: SocketAddr = "0.0.0.0:0".parse().unwrap();
+                let udp = PlayerUDP::new(payload.ssrc, dest_addr, src_addr, mode);
+                self.send(DiscordPayload::SelectProtocol(SelectProtocol {
+                    protocol: "udp".to_string(),
+                    data: SelectProtocolData {
+                        address: ready.ip,
+                        port: ready.port,
+                        mode: EncryptionMode::xsalsa20_poly1305,
+                    },
+                }))
+                .await?;
+                Ok(udp)
+            } else {
+                Err(Error::new(
+                    ErrorKind::ConnectionAborted,
+                    "Expected Ready payload first",
+                ))
+            }
+        } else {
+            Err(Error::new(
+                ErrorKind::ConnectionAborted,
+                "Expected Ready payload first",
+            ))
+        }
+    } */
+
+    pub async fn run(mut self) -> Result<(), Error> {
+        loop {
+            tokio::select! {
+                sent_payload = self.from_player.recv() => {
+                    if let Some(payload) = sent_payload {
+                        self.send(payload).await?;
+                    }
+                },
+
+                Some(payload) = handle_message(&mut self.read) => {
+                    match payload {
+                        DiscordPayload::Ready(_) => {
+                            self.to_player
+                                .send(payload)
+                                .expect("Receiver should not be dropped");
+                        }
+                        DiscordPayload::Hello(payload) => {
+                            self.heartbeat_interval =
+                                Some(Duration::from_millis(payload.heartbeat_interval));
+                            self.start_heartbeating();
+                        }
+                        DiscordPayload::SessionDescription(_) => {
+                            self.to_player
+                                .send(payload)
+                                .expect("Receiver should not be dropped");
+                        }
+                        DiscordPayload::Speaking(_) => {}
+                        DiscordPayload::Resumed => {}
+                        DiscordPayload::ClientDisconnect(_) => {}
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
+
+    async fn identify(&self, player: &Player) -> Result<(), Error> {
         let inner_payload = Identify {
             server_id: player.guild_id(),
             user_id: player.user_id(),
@@ -402,13 +350,15 @@ impl PlayerGateway {
 
     fn start_heartbeating(&self) {
         let weak_sender = Arc::downgrade(&self.write);
-        let heartbeat_interval = self.heartbeat_interval;
+        let heartbeat_interval = self
+            .heartbeat_interval
+            .expect("Started heartbeating before Hello");
         tokio::spawn(async move {
             let mut interval = time::interval(heartbeat_interval);
             loop {
                 interval.tick().await;
                 match weak_sender.upgrade() {
-                    Some(write) => write.write().await.send(Self::heartbeat().into()),
+                    Some(write) => write.write().await.send(Self::heartbeat().into()).await,
                     None => {
                         eprintln!("Websocket writer is dropped");
                         break;
@@ -421,8 +371,20 @@ impl PlayerGateway {
 
 struct PlayerUDP {
     ssrc: u32,
-    dest_ip: IpAddr,
-    src_ip: IpAddr,
+    dest_ip: SocketAddr,
+    src_ip: SocketAddr,
     mode: EncryptionMode,
-    secret_key: [u8; 32]
+    secret_key: Option<[u8; 32]>,
+}
+
+impl PlayerUDP {
+    fn new(ssrc: u32, dest_ip: SocketAddr, src_ip: SocketAddr, mode: EncryptionMode) -> Self {
+        Self {
+            ssrc,
+            dest_ip,
+            src_ip,
+            mode,
+            secret_key: None,
+        }
+    }
 }

@@ -10,6 +10,8 @@ use warp::ws::{Message, WebSocket};
 
 use payloads::ClientPayload;
 
+use self::payloads::VoiceUpdate;
+
 pub struct Headers {
     authorization: String,
     user_id: String,
