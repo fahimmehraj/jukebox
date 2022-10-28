@@ -195,8 +195,33 @@ impl PlayerConnection {
                 eprintln!("{}", e);
             }
         });
+        if let Some(payload) = from_gateway.recv().await {
+            if let DiscordPayload::Ready(payload) = payload {
+                let (udp_tx, udp_rx) = unbounded_channel();
+                let dest_addr: SocketAddr = format!("{}:{}", payload.ip, payload.port)
+                    .parse()
+                    .expect("Discord did not provide valid udp address");
+                let mode = payload
+                    .modes
+                    .into_iter()
+                    .min()
+                    .expect("Modes should not be empty");
+                let src_addr: SocketAddr = "0.0.0.0:0".parse().unwrap();
+                let udp = PlayerUDP::new(payload.ssrc, dest_addr, src_addr, mode);
+            } else {
+                return Err(Error::new(
+                    ErrorKind::ConnectionAborted,
+                    "Expected Ready payload",
+                ));
+            }
+        } else {
+            return Err(Error::new(
+                ErrorKind::ConnectionAborted,
+                "No payload received",
+            ));
+        }
         let (to_player, from_udp) = unbounded_channel();
-        let (mut udp, to_udp) = PlayerUdp::new(player, to_player).await?;
+        let (mut udp, to_udp) = PlayerUDP::new(player, to_player).await?;
         tokio::spawn(async move {
             if let Err(e) = udp.run().await {
                 eprintln!("{}", e);
