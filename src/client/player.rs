@@ -220,13 +220,6 @@ impl PlayerConnection {
                 "No payload received",
             ));
         }
-        let (to_player, from_udp) = unbounded_channel();
-        let (mut udp, to_udp) = PlayerUDP::new(player, to_player).await?;
-        tokio::spawn(async move {
-            if let Err(e) = udp.run().await {
-                eprintln!("{}", e);
-            }
-        });
         todo!()
     }
 }
@@ -398,17 +391,35 @@ struct PlayerUDP {
     dest_ip: SocketAddr,
     src_ip: SocketAddr,
     mode: EncryptionMode,
+    from_player: UnboundedReceiver<DiscordPayload>,
+    to_player: UnboundedSender<DiscordPayload>,
+    socket: Arc<UdpSocket>,
     secret_key: Option<[u8; 32]>,
 }
 
 impl PlayerUDP {
-    fn new(ssrc: u32, dest_ip: SocketAddr, src_ip: SocketAddr, mode: EncryptionMode) -> Self {
-        Self {
-            ssrc,
-            dest_ip,
-            src_ip,
-            mode,
-            secret_key: None,
-        }
+    async fn new(
+        ssrc: u32,
+        dest_ip: SocketAddr,
+        src_ip: SocketAddr,
+        mode: EncryptionMode,
+        to_player: UnboundedSender<DiscordPayload>,
+    ) -> Result<(Self, UnboundedSender<DiscordPayload>), Error> {
+        let (to_self, from_player) = unbounded_channel();
+        let socket = Arc::new(UdpSocket::bind(src_ip).await?);
+        socket.connect(dest_ip).await?;
+        Ok((
+            Self {
+                ssrc,
+                dest_ip,
+                src_ip,
+                mode,
+                from_player,
+                to_player,
+                socket,
+                secret_key: None,
+            },
+            to_self,
+        ))
     }
 }
