@@ -183,12 +183,14 @@ impl Player {
 
 struct PlayerConnection {
     from_gateway: UnboundedReceiver<DiscordPayload>,
+    to_gateway: UnboundedSender<DiscordPayload>,
     from_udp: UnboundedReceiver<DiscordPayload>,
+    to_udp: UnboundedSender<DiscordPayload>
 }
 
 impl PlayerConnection {
     async fn new(player: &Player) -> Result<Self, Error> {
-        let (to_player, from_gateway) = unbounded_channel();
+        let (to_player, mut from_gateway) = unbounded_channel();
         let (mut gateway, to_gateway) = PlayerGateway::new(player, to_player).await?;
         tokio::spawn(async move {
             if let Err(e) = gateway.run().await {
@@ -197,7 +199,7 @@ impl PlayerConnection {
         });
         if let Some(payload) = from_gateway.recv().await {
             if let DiscordPayload::Ready(payload) = payload {
-                let (udp_tx, udp_rx) = unbounded_channel();
+                let (to_player, from_udp) = unbounded_channel();
                 let dest_addr: SocketAddr = format!("{}:{}", payload.ip, payload.port)
                     .parse()
                     .expect("Discord did not provide valid udp address");
@@ -207,7 +209,7 @@ impl PlayerConnection {
                     .min()
                     .expect("Modes should not be empty");
                 let src_addr: SocketAddr = "0.0.0.0:0".parse().unwrap();
-                let udp = PlayerUDP::new(payload.ssrc, dest_addr, src_addr, mode);
+                let udp = PlayerUDP::new(payload.ssrc, dest_addr, src_addr, mode, to_player).await?;
             } else {
                 return Err(Error::new(
                     ErrorKind::ConnectionAborted,
