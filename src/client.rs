@@ -11,30 +11,11 @@ use anyhow::Result;
 
 use payloads::ClientPayload;
 
+use crate::server::Headers;
+
 use self::payloads::VoiceUpdate;
 
-pub struct Headers {
-    authorization: String,
-    user_id: String,
-    client_name: String,
-}
 
-impl Headers {
-    pub fn new(authorization: String, user_id: String, client_name: String) -> Self {
-        Self {
-            authorization,
-            user_id,
-            client_name,
-        }
-    }
-
-    pub fn verify(self, authorization: &str) -> Option<Self> {
-        if self.authorization != authorization {
-            return None;
-        }
-        Some(self)
-    }
-}
 
 pub struct Client {
     user_id: Arc<String>,
