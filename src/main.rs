@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use futures_util::stream::SplitStream;
 use futures_util::StreamExt;
 use jukebox::utils::handle_message;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
@@ -108,86 +107,24 @@ async fn handle_websocket(websocket: warp::ws::WebSocket, headers: Headers) {
         }
     });
 
-    while let Some(payload) =
+    while let Ok(payload) =
         // jesus
         handle_message::<_, _, _, ClientPayload>(&mut rx).await
     {
+        println!("{:?}", payload);
         match payload.op {
             Opcode::VoiceUpdate(voice_update) => {
-                tokio::spawn(create_player(client.clone(), player_tx.clone(), voice_update))
+                println!("Voice update: {:?}", voice_update);
+                if let Err(e) = client.add_player(voice_update).await {
+                    eprintln!("Error adding player: {}", e);
+                }
             }
             _ => {
                 println!("recieved");
-                match client.get_player_sender(&payload.guild_id).await {
-                    // receiver will never be dropped so long as player is alive
-                    Some(sender) => sender.send(payload).unwrap(),
-                    None => {
-                        client
-                            .send(Message::text("No player associated with this guild_id"))
-                            .await
-                    }
+                if let Err(e) = client.send_to_player(payload).await {
+                    println!("Error sending to player: {}", e);
                 }
             }
-        }
-    }
-}
-
-async fn create_player(
-    client: Arc<Client>,
-    player_tx: UnboundedSender<String>,
-    voice_update: VoiceUpdate,
-) {
-    let mut player = match Player::new(client.id(), voice_update, player_tx).await {
-        Ok(player) => player,
-        Err(e) => {
-            eprintln!("{}", e);
-            return;
-        }
-    };
-    if let Err(e) = player.start().await {
-        eprintln!("Player Error:, {}", e);
-        return;
-    }
-    client.add_player(player).await;
-
-    let example1 = vec!["Priority 2", "Priority 1", "Priority 3"];
-    // should be Priority 1
-    let result: String = example1.into_iter().easy_func(/*stuff */);
-
-    let example3 = vec!["Priority 3", "Priority 2"];
-    // result is Priority 2
-    let result: String = example1.into_iter().easy_func(/*stuff */);
-
-    let example4 = vec!["Priority 3"];
-    // result is Priority 3
-    let result: String = example1.into_iter().easy_func(/*stuff */);
-}
-
-fn handle_payload(payload: ClientPayload) {
-    match payload.op {
-        Opcode::VoiceUpdate(voice_update) => {
-            println!("VoiceUpdate: {:?}", voice_update);
-        }
-        Opcode::Play(play) => {
-            println!("Play: {:?}", play);
-        }
-        Opcode::Stop(stop) => {
-            println!("Stop: {:?}", stop);
-        }
-        Opcode::Pause(pause) => {
-            println!("Pause: {:?}", pause);
-        }
-        Opcode::Seek(seek) => {
-            println!("Seek: {:?}", seek);
-        }
-        Opcode::Volume(volume) => {
-            println!("Volume: {:?}", volume);
-        }
-        Opcode::Filters(filters) => {
-            println!("Filters: {:?}", filters);
-        }
-        Opcode::Destroy(destroy) => {
-            println!("Destroy: {:?}", destroy);
         }
     }
 }

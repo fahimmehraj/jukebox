@@ -1,64 +1,135 @@
 use serde::{Deserialize, Serialize};
+use serde_with::{serde_as, DefaultOnError};
 use tokio_tungstenite::tungstenite::Message;
 
 use crate::crypto::EncryptionMode;
 
-#[derive(Serialize, Deserialize, Debug)]
-#[serde(rename_all = "camelCase")]
-#[serde(tag = "op", content = "d")]
+#[derive(Debug)]
 pub enum DiscordPayload {
-    #[serde(skip_deserializing)]
-    #[serde(rename = "0")]
     Identify(Identify),
 
-    #[serde(skip_deserializing)]
-    #[serde(rename = "1")]
     SelectProtocol(SelectProtocol),
 
-    #[serde(skip_serializing)]
-    #[serde(rename = "2")]
     Ready(Ready),
 
-    #[serde(skip_deserializing)]
-    #[serde(rename = "3")]
     Heartbeat(Heartbeat),
 
-    #[serde(skip_serializing)]
-    #[serde(rename = "4")]
     SessionDescription(SessionDescription),
 
-    #[serde(rename = "5")]
     Speaking(Speaking),
 
-    #[serde(skip_serializing)]
-    #[serde(rename = "6")]
     HeartbeatACK(HeartbeatACK),
 
-    #[serde(skip_deserializing)]
-    #[serde(rename = "7")]
     Resume(Resume),
 
-    #[serde(skip_serializing)]
-    #[serde(rename = "8")]
     Hello(Hello),
 
-    #[serde(skip_serializing)]
-    #[serde(rename = "9")]
     Resumed,
 
-    #[serde(skip_serializing)]
-    #[serde(rename = "13")]
     ClientDisconnect(ClientDisconnect),
+}
+
+impl Serialize for DiscordPayload {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        #[derive(Serialize)]
+        #[serde(untagged)]
+        enum DiscordPayload_<'a> {
+            Identify(&'a Identify),
+            SelectProtocol(&'a SelectProtocol),
+            Heartbeat(&'a Heartbeat),
+            Speaking(&'a Speaking),
+            Resume(&'a Resume),
+        }
+
+        #[derive(Serialize)]
+        struct TypedDiscordPayload<'a> {
+            op: u8,
+            d: DiscordPayload_<'a>,
+        }
+
+        match self {
+            DiscordPayload::Identify(payload) => TypedDiscordPayload {
+                op: 0,
+                d: DiscordPayload_::Identify(payload),
+            }
+            .serialize(serializer),
+            DiscordPayload::SelectProtocol(payload) => TypedDiscordPayload {
+                op: 1,
+                d: DiscordPayload_::SelectProtocol(payload),
+            }
+            .serialize(serializer),
+            DiscordPayload::Heartbeat(payload) => TypedDiscordPayload {
+                op: 3,
+                d: DiscordPayload_::Heartbeat(payload),
+            }
+            .serialize(serializer),
+            DiscordPayload::Speaking(payload) => TypedDiscordPayload {
+                op: 5,
+                d: DiscordPayload_::Speaking(payload),
+            }
+            .serialize(serializer),
+            DiscordPayload::Resume(payload) => TypedDiscordPayload {
+                op: 7,
+                d: DiscordPayload_::Resume(payload),
+            }
+            .serialize(serializer),
+            _ => Err(serde::ser::Error::custom("Cannot serialize this payload")),
+        }
+    }
+}
+
+// Generated with GitHub Copilot
+impl<'de> serde::Deserialize<'de> for DiscordPayload {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct DiscordPayloadWrapper {
+            op: u8,
+            d: serde_json::Value,
+        }
+
+        let wrapper = DiscordPayloadWrapper::deserialize(deserializer)?;
+
+        match wrapper.op {
+            2 => Ok(DiscordPayload::Ready(
+                serde_json::from_value(wrapper.d).unwrap(),
+            )),
+            4 => Ok(DiscordPayload::SessionDescription(
+                serde_json::from_value(wrapper.d).unwrap(),
+            )),
+            5 => Ok(DiscordPayload::Speaking(
+                serde_json::from_value(wrapper.d).unwrap(),
+            )),
+            6 => Ok(DiscordPayload::HeartbeatACK(
+                serde_json::from_value(wrapper.d).unwrap(),
+            )),
+            8 => Ok(DiscordPayload::Hello(
+                serde_json::from_value(wrapper.d).unwrap(),
+            )),
+            9 => Ok(DiscordPayload::Resumed),
+            13 => Ok(DiscordPayload::ClientDisconnect(
+                serde_json::from_value(wrapper.d).unwrap(),
+            )),
+            _ => Err(serde::de::Error::custom("invalid opcode")),
+        }
+    }
 }
 
 impl From<DiscordPayload> for Message {
     fn from(payload: DiscordPayload) -> Self {
-        Message::Text(serde_json::to_string(&payload).unwrap())
+        let text = serde_json::to_string(&payload).unwrap();
+        println!("{:#?}", text);
+        Message::Text(text)
     }
 }
 
 #[derive(Serialize, Debug)]
-#[serde(rename_all = "camelCase")]
 pub struct Identify {
     pub server_id: String,
     pub user_id: String,
@@ -67,14 +138,12 @@ pub struct Identify {
 }
 
 #[derive(Serialize, Debug)]
-#[serde(rename_all = "camelCase")]
 pub struct SelectProtocol {
     pub protocol: String,
     pub data: SelectProtocolData,
 }
 
 #[derive(Serialize, Debug)]
-#[serde(rename_all = "camelCase")]
 pub struct SelectProtocolData {
     pub address: String,
     pub port: u16,
@@ -82,44 +151,51 @@ pub struct SelectProtocolData {
 }
 
 #[derive(Deserialize, Debug)]
-#[serde(rename_all = "camelCase")]
 pub struct Ready {
     pub ssrc: u32,
     pub ip: String,
     pub port: u16,
+    #[serde(deserialize_with = "skip_on_error")]
     pub modes: Vec<EncryptionMode>,
-    pub heartbeat_interval: u64,
+}
+fn skip_on_error<'de, D>(deserializer: D) -> Result<Vec<EncryptionMode>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    #[serde_as]
+    #[derive(Deserialize, Debug)]
+    struct MayBeT(#[serde_as(as = "DefaultOnError")] Option<EncryptionMode>);
+
+    let values: Vec<MayBeT> = Deserialize::deserialize(deserializer)?;
+
+    Ok(values.into_iter().filter_map(|t| t.0).collect())
 }
 
 #[derive(Serialize, Debug)]
-#[serde(rename_all = "camelCase")]
 pub struct Heartbeat {
     pub nonce: u128,
 }
 
 #[derive(Deserialize, Debug)]
-#[serde(rename_all = "camelCase")]
 pub struct SessionDescription {
     pub mode: EncryptionMode,
     pub secret_key: [u8; 32],
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-#[serde(rename_all = "camelCase")]
 pub struct Speaking {
+    pub user_id: Option<String>,
     pub speaking: u8,
-    pub delay: u8,
+    pub delay: Option<u8>,
     pub ssrc: u32,
 }
 
 #[derive(Deserialize, Debug)]
-#[serde(rename_all = "camelCase")]
 pub struct HeartbeatACK {
     pub nonce: u64,
 }
 
 #[derive(Serialize, Debug)]
-#[serde(rename_all = "camelCase")]
 pub struct Resume {
     pub server_id: String,
     pub session_id: String,
@@ -127,16 +203,14 @@ pub struct Resume {
 }
 
 #[derive(Deserialize, Debug)]
-#[serde(rename_all = "camelCase")]
 pub struct Hello {
-    pub heartbeat_interval: u64,
+    pub heartbeat_interval: f64,
 }
 
 // Resumed has no data
 
 // i am not sure what fields opcode 13 actually has
 #[derive(Deserialize, Debug)]
-#[serde(rename_all = "camelCase")]
 pub struct ClientDisconnect {
-    pub reason: String,
+    pub user_id: String,
 }

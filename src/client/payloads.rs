@@ -35,7 +35,6 @@ pub struct VoiceUpdate {
 }
 
 #[derive(Deserialize, Debug)]
-#[serde(rename_all = "camelCase")]
 pub struct VoiceUpdateEvent {
     pub token: String,
     pub guild_id: String,

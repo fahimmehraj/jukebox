@@ -5,8 +5,9 @@ use std::{collections::HashMap, sync::Arc};
 
 use futures_util::{stream::SplitSink, SinkExt};
 use player::Player;
-use tokio::sync::{mpsc::UnboundedSender, RwLock};
+use tokio::sync::{mpsc::{UnboundedSender, unbounded_channel}, RwLock};
 use warp::ws::{Message, WebSocket};
+use anyhow::Result;
 
 use payloads::ClientPayload;
 
@@ -36,23 +37,23 @@ impl Headers {
 }
 
 pub struct Client {
-    user_id: String,
+    user_id: Arc<String>,
     client_name: String,
-    players: RwLock<HashMap<String, Arc<RwLock<Player>>>>,
+    players: RwLock<HashMap<String, UnboundedSender<ClientPayload>>>,
     sender: RwLock<SplitSink<WebSocket, Message>>,
 }
 
 impl Client {
     pub fn new(headers: Headers, sender: SplitSink<WebSocket, Message>) -> Self {
         Self {
-            user_id: headers.user_id,
+            user_id: Arc::new(headers.user_id),
             client_name: headers.client_name,
             players: RwLock::new(HashMap::new()),
             sender: RwLock::new(sender),
         }
     }
 
-    pub fn id(&self) -> String {
+    pub fn user_id(&self) -> Arc<String> {
         self.user_id.clone()
     }
 
@@ -60,28 +61,34 @@ impl Client {
         self.client_name.clone()
     }
 
-    pub async fn add_player(&self, player: Player) {
+    pub async fn add_player(&self, voice_update: VoiceUpdate) -> Result<()> {
+        let guild_id = voice_update.event.guild_id.clone();
+        let (client_tx, player_rx) = unbounded_channel();
+        let (mut player, player_tx) = Player::new(self.user_id(), voice_update, client_tx).await?;
+        tokio::spawn(async move {
+            if let Err(e) = player.start().await {
+                eprintln!("Player error: {}", e);
+            }
+        });
         self.players
             .write()
             .await
-            .insert(player.guild_id(), Arc::new(RwLock::new(player)));
+            .insert(guild_id, player_tx);
+        Ok(())
     }
 
     pub async fn remove_player(&self, guild_id: &str) {
         self.players.write().await.remove(guild_id);
     }
 
-    pub async fn get_player(&self, guild_id: &str) -> Option<Arc<RwLock<Player>>> {
-        self.players.read().await.get(guild_id).cloned()
-    }
-
-    pub async fn get_player_sender(
-        &self,
-        guild_id: &str,
-    ) -> Option<UnboundedSender<ClientPayload>> {
-        match self.players.read().await.get(guild_id) {
-            Some(player) => Some(player.read().await.sender()),
-            None => None,
+    pub async fn send_to_player(&self, client_payload: ClientPayload) -> Result<()> {
+        println!("{:?}", self.players.read().await);
+        match self.players.read().await.get(&client_payload.guild_id) {
+            None => Err(anyhow::anyhow!("No player found for guild {}", client_payload.guild_id)),
+            Some(player_tx) => {
+                player_tx.send(client_payload)?;
+                Ok(())
+            }
         }
     }
 
