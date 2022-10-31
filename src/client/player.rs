@@ -1,17 +1,16 @@
 use std::{
     io::{Error, ErrorKind},
-    sync::{Arc},
-    time::{Duration},
+    sync::Arc,
+    time::Duration,
 };
 
 use anyhow::Result;
-
 
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 
 use crate::discord::voice::VoiceManager;
 
-use super::payloads::{ClientPayload, VoiceUpdate, Opcode};
+use super::payloads::{ClientPayload, Opcode, VoiceUpdate};
 
 pub struct Player {
     user_id: Arc<String>,
@@ -97,7 +96,7 @@ impl Player {
             _ => {
                 println!("Received client payload: {:?}", client_payload);
                 Ok(())
-            },
+            }
         }
     }
 

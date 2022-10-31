@@ -1,9 +1,12 @@
-use std::{fmt::{Debug, Display}, io::ErrorKind};
+use std::{
+    fmt::{Debug, Display},
+    io::ErrorKind,
+};
 
-use futures_util::{stream::SplitStream, StreamExt, Stream};
-use warp::ws::Message as ClientMessage;
-use tokio_tungstenite::tungstenite::Message as DiscordMessage;
 use anyhow::Result;
+use futures_util::{stream::SplitStream, Stream, StreamExt};
+use tokio_tungstenite::tungstenite::Message as DiscordMessage;
+use warp::ws::Message as ClientMessage;
 
 pub trait Representable {
     fn represent(self) -> Result<Vec<u8>>;
@@ -12,7 +15,13 @@ pub trait Representable {
 impl Representable for ClientMessage {
     fn represent(self) -> Result<Vec<u8>> {
         if self.is_close() {
-            return Err(anyhow::anyhow!(ErrorKind::ConnectionAborted).context(format!("{:?}", self.close_frame().unwrap_or((0, "No close reason provided")))))
+            return Err(
+                anyhow::anyhow!(ErrorKind::ConnectionAborted).context(format!(
+                    "{:?}",
+                    self.close_frame()
+                        .unwrap_or((0, "No close reason provided"))
+                )),
+            );
         }
         Ok(self.as_bytes().to_vec())
     }
@@ -35,7 +44,7 @@ where
     M: Representable + Debug,
     R: serde::de::DeserializeOwned + Debug,
 {
-    if let Some(msg ) = rx.next().await {
+    if let Some(msg) = rx.next().await {
         let msg = msg?;
         eprintln!("received message: {:#?}", msg);
         Ok(serde_json::from_slice(&msg.represent()?[..])?)

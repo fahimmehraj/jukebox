@@ -1,6 +1,6 @@
 pub mod client;
-pub mod discord;
-pub mod utils;
-pub mod crypto;
 pub mod config;
+pub mod crypto;
+pub mod discord;
 pub mod server;
+pub mod utils;

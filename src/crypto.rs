@@ -60,10 +60,7 @@ impl EncryptionMode {
                 match cipher.encrypt(&nonce_buf.into(), data) {
                     Ok(cipher_bytes) => Ok(cipher_bytes),
                     Err(e) => {
-                        return Err(anyhow::anyhow!(
-                            "XSalsa20Poly1305 encryption failed: {}",
-                            e
-                        ));
+                        return Err(anyhow::anyhow!("XSalsa20Poly1305 encryption failed: {}", e));
                     }
                 }
             }

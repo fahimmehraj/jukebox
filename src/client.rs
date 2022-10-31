@@ -3,19 +3,20 @@ pub mod player;
 
 use std::{collections::HashMap, sync::Arc};
 
+use anyhow::Result;
 use futures_util::{stream::SplitSink, SinkExt};
 use player::Player;
-use tokio::sync::{mpsc::{UnboundedSender, unbounded_channel}, RwLock};
+use tokio::sync::{
+    mpsc::{unbounded_channel, UnboundedSender},
+    RwLock,
+};
 use warp::ws::{Message, WebSocket};
-use anyhow::Result;
 
 use payloads::ClientPayload;
 
 use crate::server::Headers;
 
 use self::payloads::VoiceUpdate;
-
-
 
 pub struct Client {
     user_id: Arc<String>,
@@ -51,10 +52,7 @@ impl Client {
                 eprintln!("Player error: {}", e);
             }
         });
-        self.players
-            .write()
-            .await
-            .insert(guild_id, player_tx);
+        self.players.write().await.insert(guild_id, player_tx);
         Ok(())
     }
 
@@ -65,7 +63,10 @@ impl Client {
     pub async fn send_to_player(&self, client_payload: ClientPayload) -> Result<()> {
         println!("{:?}", self.players.read().await);
         match self.players.read().await.get(&client_payload.guild_id) {
-            None => Err(anyhow::anyhow!("No player found for guild {}", client_payload.guild_id)),
+            None => Err(anyhow::anyhow!(
+                "No player found for guild {}",
+                client_payload.guild_id
+            )),
             Some(player_tx) => {
                 player_tx.send(client_payload)?;
                 Ok(())
