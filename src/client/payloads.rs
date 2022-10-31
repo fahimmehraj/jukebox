@@ -1,7 +1,5 @@
 mod transformations;
 
-use std::time::Duration;
-
 use serde::Deserialize;
 use transformations::*;
 
@@ -47,10 +45,8 @@ pub struct VoiceUpdateEvent {
 #[serde(rename_all = "camelCase")]
 pub struct Play {
     pub track: String,
-    #[serde(with = "serde_millis")]
-    pub start_time: Option<Duration>,
-    #[serde(with = "serde_millis")]
-    pub end_time: Option<Duration>,
+    pub start_time: Option<u64>,
+    pub end_time: Option<u64>,
     pub volume: Option<i16>,
     pub no_replace: Option<bool>,
     pub pause: Option<bool>,
@@ -69,8 +65,7 @@ pub struct Pause {
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Seek {
-    #[serde(with = "serde_millis")]
-    pub position: Duration,
+    pub position: u64,
 }
 
 #[derive(Deserialize, Debug)]

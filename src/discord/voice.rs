@@ -14,12 +14,12 @@ use crate::client::player::Player;
 use super::payloads::*;
 
 pub use gateway::VoiceGateway;
-pub use udp::VoiceUDP;
+pub use udp::{UDPMessage, VoiceUDP};
 
 pub struct VoiceManager {
     gateway_rx: UnboundedReceiver<DiscordPayload>,
     gateway_tx: UnboundedSender<DiscordPayload>,
-    udp_tx: UnboundedSender<DiscordPayload>,
+    udp_tx: UnboundedSender<UDPMessage>,
 }
 
 // i gotta clean this up

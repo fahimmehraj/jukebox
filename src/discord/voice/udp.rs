@@ -7,7 +7,7 @@ use std::{
 
 use anyhow::Result;
 use byteorder::{ByteOrder, NetworkEndian};
-    
+
 use tokio::net::UdpSocket;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 
@@ -15,13 +15,20 @@ use super::super::payloads::DiscordPayload;
 
 use crate::crypto::EncryptionMode;
 
+pub enum UDPMessage {
+    Silence,
+    Audio(Vec<u8>),
+}
+
 pub struct VoiceUDP {
     ssrc: u32,
     remote_addr: SocketAddr,
     local_addr: SocketAddr,
     mode: EncryptionMode,
-    player_rx: UnboundedReceiver<DiscordPayload>,
+    player_rx: UnboundedReceiver<UDPMessage>,
     socket: Arc<UdpSocket>,
+    sequence: u16,
+    timestamp: u32,
     secret_key: Option<[u8; 32]>,
 }
 
@@ -32,7 +39,7 @@ impl VoiceUDP {
         ssrc: u32,
         dest_ip: SocketAddr,
         mode: EncryptionMode,
-    ) -> Result<(Self, UnboundedSender<DiscordPayload>)> {
+    ) -> Result<(Self, UnboundedSender<UDPMessage>)> {
         let (udp_tx, player_rx) = unbounded_channel();
         let socket = Arc::new(UdpSocket::bind("0.0.0.0:0").await?);
         socket.connect(dest_ip).await?;
@@ -46,15 +53,46 @@ impl VoiceUDP {
                 mode,
                 player_rx,
                 socket,
+                sequence: 0,
+                timestamp: 0,
                 secret_key: None,
             },
             udp_tx,
         ))
     }
 
-    pub async fn run(&mut self) -> Result<(), Error> {
-        while let Some(msg) = self.player_rx.recv().await {}
-        Ok(())
+    pub async fn run(&mut self) -> Result<()> {
+        let secret_key = self.secret_key.take().ok_or(Error::new(
+            ErrorKind::Other,
+            "Cannot run UDP connection without a secret key",
+        ))?;
+
+        loop {
+            let msg = self
+                .player_rx
+                .recv()
+                .await
+                .ok_or(Error::new(ErrorKind::Other, "Player channel closed"))?;
+
+            let mut packet = vec![0u8; 12];
+            packet[0] = 0x80;
+            packet[1] = 0x78;
+            NetworkEndian::write_u16(&mut packet[2..4], self.sequence);
+            NetworkEndian::write_u32(&mut packet[4..8], self.timestamp);
+            NetworkEndian::write_u32(&mut packet[8..12], self.ssrc);
+
+            match msg {
+                UDPMessage::Silence => {
+                    // Send 5 silence frames
+                    todo!()
+                }
+                UDPMessage::Audio(audio) => {
+                    let mut encrypted = self.mode.encrypt(&audio, &packet, &secret_key)?;
+                    packet.append(&mut encrypted);
+                    self.socket.send(&packet).await?;
+                }
+            }
+        }
     }
 
     pub fn secret_key_mut(&mut self) -> &mut Option<[u8; 32]> {
