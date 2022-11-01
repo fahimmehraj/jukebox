@@ -15,6 +15,9 @@ use super::super::payloads::DiscordPayload;
 
 use crate::crypto::EncryptionMode;
 
+const SILENCE_FRAME: [u8; 3] = [0xf8, 0xff, 0xfe];
+
+#[derive(Debug)]
 pub enum UDPMessage {
     Silence,
     Audio(Vec<u8>),
@@ -83,8 +86,9 @@ impl VoiceUDP {
 
             match msg {
                 UDPMessage::Silence => {
-                    // Send 5 silence frames
-                    todo!()
+                    let mut encrypted = self.mode.encrypt(&SILENCE_FRAME, &packet, &secret_key)?;
+                    packet.append(&mut encrypted);
+                    self.socket.send(&packet).await?;
                 }
                 UDPMessage::Audio(audio) => {
                     let mut encrypted = self.mode.encrypt(&audio, &packet, &secret_key)?;

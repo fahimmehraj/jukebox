@@ -72,14 +72,16 @@ impl Player {
         // Send Select Protocol payload
         // Receive Session Description payload
         self.connection_manager = Some(VoiceManager::new(&self).await?);
+        if let Some(connection_manager) = &self.connection_manager {
+            connection_manager.play_audio("NothingNew.opus").await?;
+        }
         loop {
             tokio::select! {
                 client_payload = self.client_rx.recv() => {
                     if let Some(payload) = client_payload {
                         self.handle_client_payload(payload).await?;
                     } else {
-                        println!("Client disconnected before destroy");
-                        return Ok(())
+                        return Err(anyhow::anyhow!("Client disconnected before destroy"));
                     }
                 }
             }
@@ -87,16 +89,24 @@ impl Player {
     }
 
     async fn handle_client_payload(&mut self, client_payload: ClientPayload) -> Result<()> {
+        if let Some(connection_manager) = &self.connection_manager {
         match client_payload.op {
             Opcode::Destroy(_) => {
                 println!("Destroying player");
-                drop(self.connection_manager.take());
                 Err(anyhow::anyhow!("Destroying player"))
+            },
+            Opcode::Play(_) => {
+                println!("Playing track");
+                connection_manager.play_audio("NothingNew.opus").await?;
+                Ok(())
             }
             _ => {
                 println!("Received client payload: {:?}", client_payload);
                 Ok(())
             }
+        }
+        } else {
+           Err(anyhow::anyhow!("No connection maanager"))
         }
     }
 

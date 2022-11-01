@@ -4,10 +4,16 @@ mod udp;
 use std::{
     io::{Error, ErrorKind},
     net::SocketAddr,
+    sync::Arc,
 };
 
 use anyhow::Result;
-use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
+use tokio::{
+    fs::File,
+    io::{AsyncReadExt, BufReader},
+    sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender},
+    time,
+};
 
 use crate::client::player::Player;
 
@@ -16,10 +22,14 @@ use super::payloads::*;
 pub use gateway::VoiceGateway;
 pub use udp::{UDPMessage, VoiceUDP};
 
+const FRAME_SIZE_IN_BYTES: usize = 960 * 2;
+
 pub struct VoiceManager {
+    user_id: Arc<String>,
+    ssrc: u32,
     gateway_rx: UnboundedReceiver<DiscordPayload>,
     gateway_tx: UnboundedSender<DiscordPayload>,
-    udp_tx: UnboundedSender<UDPMessage>,
+    udp_tx: Arc<UnboundedSender<UDPMessage>>,
 }
 
 // i gotta clean this up
@@ -44,6 +54,8 @@ impl VoiceManager {
                     .into_iter()
                     .min()
                     .expect("Modes should not be empty");
+                // cache the ssrc
+                let ssrc = payload.ssrc;
                 let (mut udp, udp_tx) = VoiceUDP::connect(payload.ssrc, dest_addr, mode).await?;
                 gateway_tx.send(DiscordPayload::SelectProtocol(SelectProtocol {
                     protocol: "udp".to_string(),
@@ -62,9 +74,11 @@ impl VoiceManager {
                             }
                         });
                         return Ok(Self {
+                            user_id: player.user_id(),
+                            ssrc,
                             gateway_rx,
                             gateway_tx,
-                            udp_tx,
+                            udp_tx: Arc::new(udp_tx),
                         });
                     } else {
                         return Err(Error::new(
@@ -90,5 +104,38 @@ impl VoiceManager {
                 "No payload received",
             ))?;
         }
+    }
+
+    pub async fn play_audio(&self, path: &str) -> Result<()> {
+        self.gateway_tx.send(DiscordPayload::Speaking(Speaking {
+            speaking: 1,
+            delay: Some(0),
+            user_id: Some(self.user_id.to_string()),
+            ssrc: self.ssrc,
+        }))?;
+        println!("started playing audio");
+        let audio_file = File::open(path).await?;
+        let mut reader = BufReader::new(audio_file);
+        let mut interval = time::interval(time::Duration::from_millis(20));
+        let weak_udp_tx = Arc::downgrade(&self.udp_tx);
+        tokio::spawn(async move {
+            loop {
+                println!("Beginning of loop");
+                interval.tick().await;
+                if let Some(udp_tx) = weak_udp_tx.upgrade() {
+                    let mut buffer = vec![0; FRAME_SIZE_IN_BYTES];
+                    let bytes_read = reader.read(&mut buffer).await.unwrap();
+                    println!("Read {} bytes", bytes_read);
+                    if bytes_read == 0 {
+                        break;
+                    }
+                    udp_tx.send(UDPMessage::Audio(buffer)).unwrap();
+                } else {
+                    break;
+                }
+            }
+        });
+
+        Ok(())
     }
 }
