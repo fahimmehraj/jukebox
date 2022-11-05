@@ -10,6 +10,7 @@ use byteorder::{ByteOrder, NetworkEndian};
 
 use tokio::net::UdpSocket;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
+use xsalsa20poly1305::XSalsa20Poly1305;
 
 use super::super::payloads::DiscordPayload;
 
@@ -32,7 +33,7 @@ pub struct VoiceUDP {
     socket: Arc<UdpSocket>,
     sequence: u16,
     timestamp: u32,
-    secret_key: Option<[u8; 32]>,
+    cipher: Option<XSalsa20Poly1305>,
 }
 
 impl VoiceUDP {
@@ -58,14 +59,14 @@ impl VoiceUDP {
                 socket,
                 sequence: 0,
                 timestamp: 0,
-                secret_key: None,
+                cipher: None,
             },
             udp_tx,
         ))
     }
 
     pub async fn run(&mut self) -> Result<()> {
-        let secret_key = self.secret_key.take().ok_or(Error::new(
+        let cipher = self.cipher.take().ok_or(Error::new(
             ErrorKind::Other,
             "Cannot run UDP connection without a secret key",
         ))?;
@@ -86,12 +87,12 @@ impl VoiceUDP {
 
             match msg {
                 UDPMessage::Silence => {
-                    let mut encrypted = self.mode.encrypt(&SILENCE_FRAME, &packet, &secret_key)?;
+                    let mut encrypted = self.mode.encrypt(&SILENCE_FRAME, &packet, &cipher)?;
                     packet.append(&mut encrypted);
                     self.socket.send(&packet).await?;
                 }
                 UDPMessage::Audio(audio) => {
-                    let mut encrypted = self.mode.encrypt(&audio, &packet, &secret_key)?;
+                    let mut encrypted = self.mode.encrypt(&audio, &packet, &cipher)?;
                     packet.append(&mut encrypted);
                     self.socket.send(&packet).await?;
                 }
@@ -99,8 +100,8 @@ impl VoiceUDP {
         }
     }
 
-    pub fn secret_key_mut(&mut self) -> &mut Option<[u8; 32]> {
-        &mut self.secret_key
+    pub fn cipher_mut(&mut self) -> &mut Option<XSalsa20Poly1305> {
+        &mut self.cipher
     }
 
     pub fn local_addr(&self) -> SocketAddr {

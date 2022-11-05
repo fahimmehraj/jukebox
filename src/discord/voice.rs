@@ -14,6 +14,7 @@ use tokio::{
     sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender},
     time,
 };
+use xsalsa20poly1305::{XSalsa20Poly1305, KeyInit};
 
 use crate::client::player::Player;
 
@@ -67,7 +68,7 @@ impl VoiceManager {
                 }))?;
                 if let Some(payload) = gateway_rx.recv().await {
                     if let DiscordPayload::SessionDescription(payload) = payload {
-                        *udp.secret_key_mut() = Some(payload.secret_key);
+                        *udp.cipher_mut() = Some(XSalsa20Poly1305::new_from_slice(&payload.secret_key)?);
                         tokio::spawn(async move {
                             if let Err(e) = udp.run().await {
                                 eprintln!("{}", e);

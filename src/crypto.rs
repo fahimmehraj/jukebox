@@ -1,11 +1,8 @@
-use std::borrow::BorrowMut;
-
 use anyhow::Result;
 use byteorder::{ByteOrder, NetworkEndian};
 use serde::{Deserialize, Serialize};
 
-use rand::Rng;
-use xsalsa20poly1305::{aead::Aead, KeyInit, XSalsa20Poly1305};
+use xsalsa20poly1305::{aead::Aead, XSalsa20Poly1305};
 
 #[derive(Clone, Copy, Serialize, Deserialize, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum EncryptionMode {
@@ -22,9 +19,8 @@ impl EncryptionMode {
         &mut self,
         data: &[u8],
         rtp_header: &[u8],
-        secret_key: &[u8],
+        cipher: &XSalsa20Poly1305,
     ) -> Result<Vec<u8>> {
-        let cipher = XSalsa20Poly1305::new(secret_key.into());
         match self {
             EncryptionMode::XSalsa20Poly1305Lite(ref mut nonce) => {
                 let mut nonce_buf: [u8; 24] = [0u8; 24];
@@ -56,7 +52,6 @@ impl EncryptionMode {
             EncryptionMode::XSalsa20Poly1305 => {
                 let mut nonce_buf = [0u8; 24];
                 nonce_buf[..12].copy_from_slice(rtp_header);
-                let cipher = XSalsa20Poly1305::new(secret_key.into());
                 match cipher.encrypt(&nonce_buf.into(), data) {
                     Ok(cipher_bytes) => Ok(cipher_bytes),
                     Err(e) => {
