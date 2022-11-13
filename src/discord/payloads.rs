@@ -184,6 +184,7 @@ pub struct SessionDescription {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Speaking {
+    #[serde(skip_serializing)]
     pub user_id: Option<String>,
     pub speaking: u8,
     pub delay: Option<u8>,

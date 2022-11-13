@@ -23,7 +23,7 @@ use super::payloads::*;
 pub use gateway::VoiceGateway;
 pub use udp::{UDPMessage, VoiceUDP};
 
-const FRAME_SIZE_IN_BYTES: usize = 960 * 2;
+const FRAME_SIZE_IN_BYTES: usize = 200;
 
 pub struct VoiceManager {
     user_id: Arc<String>,
@@ -111,7 +111,7 @@ impl VoiceManager {
         self.gateway_tx.send(DiscordPayload::Speaking(Speaking {
             speaking: 1,
             delay: Some(0),
-            user_id: Some(self.user_id.to_string()),
+            user_id: None,
             ssrc: self.ssrc,
         }))?;
         println!("started playing audio");
@@ -121,16 +121,15 @@ impl VoiceManager {
         let weak_udp_tx = Arc::downgrade(&self.udp_tx);
         tokio::spawn(async move {
             loop {
-                println!("Beginning of loop");
                 interval.tick().await;
                 if let Some(udp_tx) = weak_udp_tx.upgrade() {
                     let mut buffer = vec![0; FRAME_SIZE_IN_BYTES];
                     let bytes_read = reader.read(&mut buffer).await.unwrap();
-                    println!("Read {} bytes", bytes_read);
                     if bytes_read == 0 {
                         break;
                     }
                     udp_tx.send(UDPMessage::Audio(buffer)).unwrap();
+                    println!("sent audio");
                 } else {
                     break;
                 }

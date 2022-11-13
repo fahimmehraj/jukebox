@@ -87,16 +87,18 @@ impl VoiceUDP {
 
             match msg {
                 UDPMessage::Silence => {
-                    let mut encrypted = self.mode.encrypt(&SILENCE_FRAME, &packet, &cipher)?;
+                    let mut encrypted = self.mode.encrypt(&mut SILENCE_FRAME, &packet, &cipher)?;
                     packet.append(&mut encrypted);
                     self.socket.send(&packet).await?;
                 }
-                UDPMessage::Audio(audio) => {
-                    let mut encrypted = self.mode.encrypt(&audio, &packet, &cipher)?;
+                UDPMessage::Audio(mut audio) => {
+                    let mut encrypted = self.mode.encrypt(&mut audio, &packet, &cipher)?;
                     packet.append(&mut encrypted);
                     self.socket.send(&packet).await?;
                 }
             }
+            self.sequence += 1;
+            self.timestamp += 1920;
         }
     }
 
