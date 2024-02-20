@@ -5,6 +5,7 @@ use std::{
 
 use anyhow::Result;
 use futures_util::{stream::SplitStream, Stream, StreamExt};
+use log::{debug, error};
 use tokio_tungstenite::tungstenite::Message as DiscordMessage;
 use warp::ws::Message as ClientMessage;
 
@@ -46,10 +47,10 @@ where
 {
     if let Some(msg) = rx.next().await {
         let msg = msg?;
-        eprintln!("received message: {:#?}", msg);
+        debug!("received message: {:#?}", msg);
         Ok(serde_json::from_slice(&msg.represent()?[..])?)
     } else {
-        eprintln!("websocket closed?");
+        error!("websocket closed?");
         return Err(anyhow::anyhow!(ErrorKind::ConnectionAborted).context("websocket closed?"));
     }
 }

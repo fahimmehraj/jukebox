@@ -1,6 +1,19 @@
 use std::{collections::HashMap, sync::Arc};
 
+use log::{error, info};
 use warp::Filter;
+
+use futures_util::StreamExt;
+use tokio::sync::mpsc::unbounded_channel;
+use warp::ws::Message;
+
+use crate::{
+    client::{
+        payloads::{ClientPayload, Opcode},
+        Client,
+    },
+    utils::handle_message,
+};
 
 use super::{Headers, Unauthorized};
 
@@ -44,6 +57,41 @@ fn with_headers(
         )
 }
 
+async fn handle_websocket(headers: Headers, websocket: warp::ws::WebSocket) {
+    info!("Websocket connected: {:?}", headers);
+    let (tx, mut rx) = websocket.split();
+    let client = Arc::new(Client::new(headers, tx));
+
+    let (player_tx, mut player_rx) = unbounded_channel::<String>();
+
+    let weak_client = Arc::downgrade(&client);
+    tokio::spawn(async move {
+        while let Some(msg) = player_rx.recv().await {
+            error!("{:?}", msg);
+            if let Some(client) = weak_client.upgrade() {
+                client.send(Message::text(msg)).await;
+            }
+        }
+    });
+
+    while let Ok(payload) = handle_message::<_, _, _, ClientPayload>(&mut rx).await {
+        match payload.op {
+            Opcode::VoiceUpdate(voice_update) => {
+                info!("Voice update: {:?}", voice_update);
+                if let Err(e) = client.add_player(voice_update).await {
+                    error!("Error adding player: {}", e);
+                }
+            }
+            _ => {
+                info!("recieved");
+                if let Err(e) = client.send_to_player(payload).await {
+                    info!("Error sending to player: {}", e);
+                }
+            }
+        }
+    }
+}
+
 fn gateway(
     password: Arc<String>,
 ) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
@@ -51,7 +99,7 @@ fn gateway(
         .and(with_headers(password))
         .and(warp::ws())
         .map(|headers, ws: warp::ws::Ws| {
-            ws.on_upgrade(move |websocket| super::handle_websocket(headers, websocket))
+            ws.on_upgrade(move |websocket| handle_websocket(headers, websocket))
         })
 }
 

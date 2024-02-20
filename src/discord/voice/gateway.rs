@@ -9,6 +9,7 @@ use futures_util::{
     stream::{SplitSink, SplitStream},
     SinkExt, StreamExt,
 };
+use log::{error, info};
 use tokio::{
     net::TcpStream,
     sync::{
@@ -103,6 +104,7 @@ impl VoiceGateway {
                             }
                         },
                         Err(e) => {
+                            error!("frick");
                             return Err(e);
                         }
                     }
@@ -141,7 +143,7 @@ impl VoiceGateway {
                 match weak_sender.upgrade() {
                     Some(write) => write.write().await.send(Self::heartbeat().into()).await,
                     None => {
-                        eprintln!("Websocket writer is dropped");
+                        error!("Websocket writer is dropped");
                         break;
                     }
                 };

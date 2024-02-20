@@ -5,6 +5,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use anyhow::Result;
 use futures_util::{stream::SplitSink, SinkExt};
+use log::{error, info};
 use player::Player;
 use tokio::sync::{
     mpsc::{unbounded_channel, UnboundedSender},
@@ -49,7 +50,7 @@ impl Client {
         let (mut player, player_tx) = Player::new(self.user_id(), voice_update, client_tx).await?;
         tokio::spawn(async move {
             if let Err(e) = player.start().await {
-                eprintln!("Player error: {}", e);
+                error!("Player error: {}", e);
             }
         });
         self.players.write().await.insert(guild_id, player_tx);
@@ -61,7 +62,7 @@ impl Client {
     }
 
     pub async fn send_to_player(&self, client_payload: ClientPayload) -> Result<()> {
-        println!("{:?}", self.players.read().await);
+        info!("{:?}", self.players.read().await);
         match self.players.read().await.get(&client_payload.guild_id) {
             None => Err(anyhow::anyhow!(
                 "No player found for guild {}",
@@ -76,7 +77,7 @@ impl Client {
 
     pub async fn send(&self, message: Message) {
         if let Err(e) = self.sender.write().await.send(message).await {
-            println!("Error sending message: {}", e);
+            info!("Error sending message: {}", e);
         }
     }
 }

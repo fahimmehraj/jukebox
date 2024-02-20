@@ -6,6 +6,7 @@ use std::{
 
 use anyhow::Result;
 
+use log::info;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 
 use crate::discord::voice::VoiceManager;
@@ -71,9 +72,11 @@ impl Player {
         // Receive Ready payload
         // Send Select Protocol payload
         // Receive Session Description payload
+        info!("Made it this far");
         self.connection_manager = Some(VoiceManager::new(&self).await?);
+        info!("Did we make it this far?");
         if let Some(connection_manager) = &self.connection_manager {
-            connection_manager.play_audio("NothingNew.opus").await?;
+            connection_manager.play_audio("SlowJams.opus").await?;
         }
         loop {
             tokio::select! {
@@ -92,16 +95,16 @@ impl Player {
         if let Some(connection_manager) = &self.connection_manager {
         match client_payload.op {
             Opcode::Destroy(_) => {
-                println!("Destroying player");
+                info!("Destroying player");
                 Err(anyhow::anyhow!("Destroying player"))
             },
             Opcode::Play(_) => {
-                println!("Playing track");
-                connection_manager.play_audio("NothingNew.opus").await?;
+                info!("Playing track");
+                connection_manager.play_audio("SlowJams.opus").await?;
                 Ok(())
             }
             _ => {
-                println!("Received client payload: {:?}", client_payload);
+                info!("Received client payload: {:?}", client_payload);
                 Ok(())
             }
         }

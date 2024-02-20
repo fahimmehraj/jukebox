@@ -4,10 +4,14 @@ mod udp;
 use std::{
     io::{Error, ErrorKind},
     net::SocketAddr,
-    sync::Arc,
+    sync::Arc, task::Context,
 };
 
+use std::task::Poll::Ready;
 use anyhow::Result;
+use futures_util::StreamExt;
+use log::{error, info};
+use ogg::reading::async_api::PacketReader;
 use tokio::{
     fs::File,
     io::{AsyncReadExt, BufReader},
@@ -16,7 +20,7 @@ use tokio::{
 };
 use xsalsa20poly1305::{XSalsa20Poly1305, KeyInit};
 
-use crate::client::player::Player;
+use crate::{client::player::Player, server::Headers};
 
 use super::payloads::*;
 
@@ -42,7 +46,7 @@ impl VoiceManager {
         let (mut gateway, gateway_tx) = VoiceGateway::connect(player, manager_tx).await?;
         tokio::spawn(async move {
             if let Err(e) = gateway.run().await {
-                eprintln!("{}", e);
+                error!("{}", e);
             }
         });
         if let Some(payload) = gateway_rx.recv().await {
@@ -58,20 +62,23 @@ impl VoiceManager {
                 // cache the ssrc
                 let ssrc = payload.ssrc;
                 let (mut udp, udp_tx) = VoiceUDP::connect(payload.ssrc, dest_addr, mode).await?;
-                gateway_tx.send(DiscordPayload::SelectProtocol(SelectProtocol {
+                let test_payload = DiscordPayload::SelectProtocol(SelectProtocol {
                     protocol: "udp".to_string(),
                     data: SelectProtocolData {
                         address: udp.local_addr().ip().to_string(),
                         port: udp.local_addr().port(),
                         mode,
                     },
-                }))?;
+                });
+                info!("About to send select protocol thing, {:?}", serde_json::to_string(&test_payload).unwrap());
+                gateway_tx.send(test_payload)?;
+                info!("Waiting on Session Description");
                 if let Some(payload) = gateway_rx.recv().await {
                     if let DiscordPayload::SessionDescription(payload) = payload {
                         *udp.cipher_mut() = Some(XSalsa20Poly1305::new_from_slice(&payload.secret_key)?);
                         tokio::spawn(async move {
                             if let Err(e) = udp.run().await {
-                                eprintln!("{}", e);
+                                error!("{}", e);
                             }
                         });
                         return Ok(Self {
@@ -114,22 +121,26 @@ impl VoiceManager {
             user_id: None,
             ssrc: self.ssrc,
         }))?;
-        println!("started playing audio");
+        info!("started playing audio");
         let audio_file = File::open(path).await?;
-        let mut reader = BufReader::new(audio_file);
+        let mut reader = PacketReader::new(audio_file);
         let mut interval = time::interval(time::Duration::from_millis(20));
         let weak_udp_tx = Arc::downgrade(&self.udp_tx);
         tokio::spawn(async move {
             loop {
                 interval.tick().await;
                 if let Some(udp_tx) = weak_udp_tx.upgrade() {
-                    let mut buffer = vec![0; FRAME_SIZE_IN_BYTES];
-                    let bytes_read = reader.read(&mut buffer).await.unwrap();
-                    if bytes_read == 0 {
+                    // let mut buffer = vec![0; FRAME_SIZE_IN_BYTES];
+                    // let bytes_read = reader.read(&mut buffer).await.unwrap();
+                    // if bytes_read == 0 {
+                    //     break;
+                    // }
+                    if let Some(Ok(packet)) = reader.next().await {
+                    udp_tx.send(UDPMessage::Audio(packet.data)).unwrap();
+                    info!("sent audio");
+                    } else {
                         break;
                     }
-                    udp_tx.send(UDPMessage::Audio(buffer)).unwrap();
-                    println!("sent audio");
                 } else {
                     break;
                 }

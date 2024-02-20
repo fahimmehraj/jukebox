@@ -1,4 +1,6 @@
+use log::info;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use serde_with::{serde_as, DefaultOnError};
 use tokio_tungstenite::tungstenite::Message;
 
@@ -27,6 +29,8 @@ pub enum DiscordPayload {
     Resumed,
 
     ClientDisconnect(ClientDisconnect),
+
+    Generic(Value),
 }
 
 impl Serialize for DiscordPayload {
@@ -116,7 +120,9 @@ impl<'de> serde::Deserialize<'de> for DiscordPayload {
             13 => Ok(DiscordPayload::ClientDisconnect(
                 serde_json::from_value(wrapper.d).unwrap(),
             )),
-            _ => Err(serde::de::Error::custom("invalid opcode")),
+            _ => Ok(DiscordPayload::Generic(
+                serde_json::from_value(wrapper.d).unwrap(),
+            )),
         }
     }
 }
@@ -124,7 +130,7 @@ impl<'de> serde::Deserialize<'de> for DiscordPayload {
 impl From<DiscordPayload> for Message {
     fn from(payload: DiscordPayload) -> Self {
         let text = serde_json::to_string(&payload).unwrap();
-        println!("{:#?}", text);
+        info!("{:#?}", text);
         Message::Text(text)
     }
 }
