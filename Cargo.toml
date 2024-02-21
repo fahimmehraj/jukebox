@@ -24,3 +24,6 @@ rand = "0.8.5"
 log = "0.4.20"
 env_logger = "0.11.2"
 ogg = { version = "0.9.1", features = ["async", "tokio"] }
+packed_struct = "0.10.1"
+tokio-stream = "0.1.14"
+bytes = "1.5.0"
