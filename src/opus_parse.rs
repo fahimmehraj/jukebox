@@ -41,12 +41,13 @@ pub struct OggPageHeader {
 
 pub struct OggStream<T: AsyncReadExt + Unpin> {
     stream: T,
-    segment_table: Option<Peekable<vec::IntoIter<u8>>>,
+    segment_table: Option<Vec<u8>>,
     buf: Option<Vec<u8>>,
     cursor: usize,
     read_mode: ReadMode,
     current_page_header: Option<OggPageHeader>,
-    test_counter: u64,
+    seg_idx: usize,
+    extend_buf: bool,
 }
 
 enum ReadMode {
@@ -86,8 +87,6 @@ impl<T: AsyncReadExt + Unpin> Stream for OggStream<T> {
                         debug!("{:?}", &header);
                         self.current_page_header = Some(header);
                         self.read_mode = ReadMode::Segtable;
-                        self.test_counter += 1;
-                        debug!("test_counter: {}", self.test_counter);
                         self.buf = None;
                         self.cursor = 0;
                         self.poll_next(cx)
@@ -120,7 +119,7 @@ impl<T: AsyncReadExt + Unpin> Stream for OggStream<T> {
                             self.buf = Some(buf);
                             return Poll::Pending;
                         }
-                        self.segment_table = Some(buf.into_iter().peekable());
+                        self.segment_table = Some(buf);
                         debug!("segtable: {:?}", self.segment_table.as_ref().unwrap());
                         self.read_mode = ReadMode::Packet;
                         self.buf = None;
@@ -136,35 +135,52 @@ impl<T: AsyncReadExt + Unpin> Stream for OggStream<T> {
             }
             ReadMode::Packet => match self
                 .segment_table
-                .as_mut()
+                .as_ref()
                 .expect("segment_table should not be None if reading mode is Packet")
-                .peek()
+                .get(self.seg_idx)
                 .copied()
             {
                 Some(seg) => {
+                    debug!("Reading segment: {} with byte: {}", self.seg_idx, seg);
                     let mut buf = self.buf.take().unwrap_or(vec![0u8; seg as usize]);
-                    if self.cursor > 0 {
-                        buf.extend_from_slice(&vec![0u8; seg as usize - self.cursor]);
+                    if self.extend_buf {
+                        debug!("original buf length: {}", buf.len());
+                        debug!("extending buffer by: {}", seg as usize);
+                        buf.extend_from_slice(&vec![0u8; seg as usize]);
+                        self.extend_buf = false;
+                    }
+                    debug!("inner buf length: {}", buf.len());
+                    if buf.len() > 255 {
+                        debug!("wow");
                     }
                     let mut read_buf = ReadBuf::new(&mut buf);
-                    // read_buf.advance(self.cursor);
+                    debug!(
+                        "cursor: {}, buf length: {}",
+                        self.cursor,
+                        read_buf.capacity()
+                    );
+                    read_buf.advance(self.cursor);
                     match Pin::new(&mut self.stream).poll_read(cx, &mut read_buf) {
                         Poll::Ready(Ok(())) => {
-                            debug!("Current segment: {}", seg);
+                            trace!("Current segment: {}", seg);
                             if read_buf.filled().len() < read_buf.capacity() {
                                 info!("Had to read more than once");
-                                debug!(
+                                warn!(
                                     "2: filled portion: {:?}, capacity: {:?}",
                                     read_buf.filled(),
                                     read_buf.capacity()
                                 );
                                 self.cursor = read_buf.filled().len();
+                                debug!("bytes actually read: {}", self.cursor);
                                 self.buf = Some(buf);
                                 return Poll::Pending;
                             }
 
-                            self.segment_table.as_mut().unwrap().next();
+                            self.seg_idx += 1;
                             if seg == 255 {
+                                self.cursor = read_buf.filled().len();
+                                self.buf = Some(buf);
+                                self.extend_buf = true;
                                 return self.poll_next(cx);
                             }
                             self.cursor = 0;
@@ -174,12 +190,16 @@ impl<T: AsyncReadExt + Unpin> Stream for OggStream<T> {
                             error!("error reading packet: {}", e);
                             return Poll::Ready(None);
                         }
-                        Poll::Pending => return Poll::Pending,
+                        Poll::Pending => {
+                            self.buf = Some(buf);
+                            Poll::Pending
+                        }
                     }
                 }
                 None => {
                     debug!("el oh el");
                     self.segment_table = None;
+                    self.seg_idx = 0;
                     self.read_mode = ReadMode::Header;
                     self.buf = None;
                     self.poll_next(cx)
@@ -198,7 +218,8 @@ impl<T: AsyncRead + Unpin> OggStream<T> {
             buf: None,
             cursor: 0,
             read_mode: ReadMode::Header,
-            test_counter: 0,
+            seg_idx: 0,
+            extend_buf: false,
         }
     }
 }

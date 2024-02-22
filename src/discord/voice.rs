@@ -10,7 +10,7 @@ use std::{
 use anyhow::Result;
 use crypto_secretbox::{KeyInit, XSalsa20Poly1305};
 use futures_util::StreamExt;
-use log::{error, info};
+use log::{debug, error, info};
 
 use tokio::{
     fs::File,
@@ -58,6 +58,7 @@ impl VoiceManager {
                     .min()
                     .expect("Modes should not be empty");
                 // cache the ssrc
+                debug!("picked mode: {:?}", mode);
                 let ssrc = payload.ssrc;
                 let (mut udp, udp_tx) = VoiceUDP::connect(payload.ssrc, dest_addr, mode).await?;
                 let test_payload = DiscordPayload::SelectProtocol(SelectProtocol {
@@ -128,9 +129,9 @@ impl VoiceManager {
         tokio::spawn(async move {
             let f = File::open(path).await.unwrap();
             let mut stream = OggStream::new(f);
-            let mut interval = time::interval(time::Duration::from_millis(5));
+            let loop_start = time::Instant::now();
+            let mut loops = 0;
             loop {
-                interval.tick().await;
                 if let Some(udp_tx) = weak_udp_tx.upgrade() {
                     if let Some(packet) = stream.next().await {
                         udp_tx.send(UDPMessage::Audio(packet)).unwrap();
@@ -140,6 +141,14 @@ impl VoiceManager {
                 } else {
                     break;
                 }
+                        loops += 1;
+                        let next_time = loop_start + time::Duration::from_millis(20) * loops;
+                        let delay = (time::Duration::from_millis(20)
+                            + (next_time - time::Instant::now()))
+                        .max(time::Duration::ZERO);
+                        debug!("time_elapsed: {:?}", next_time - time::Instant::now());
+                        debug!("delay: {:?}", delay);
+                        time::sleep(time::Duration::from_millis(20)).await;
             }
         });
 
