@@ -8,11 +8,10 @@ use std::{
 use anyhow::Result;
 use byteorder::{ByteOrder, NetworkEndian};
 
+use crypto_secretbox::XSalsa20Poly1305;
+use log::debug;
 use tokio::net::UdpSocket;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
-use xsalsa20poly1305::XSalsa20Poly1305;
-
-use super::super::payloads::DiscordPayload;
 
 use crate::crypto::EncryptionMode;
 
@@ -66,7 +65,7 @@ impl VoiceUDP {
     }
 
     pub async fn run(&mut self) -> Result<()> {
-        let cipher = self.cipher.take().ok_or(Error::new(
+        let mut cipher = self.cipher.take().ok_or(Error::new(
             ErrorKind::Other,
             "Cannot run UDP connection without a secret key",
         ))?;
@@ -87,14 +86,14 @@ impl VoiceUDP {
 
             match msg {
                 UDPMessage::Silence => {
-                    let mut encrypted = self.mode.encrypt(&mut SILENCE_FRAME, &packet, &cipher)?;
-                    packet.append(&mut encrypted);
-                    self.socket.send(&packet).await?;
+                    let mut encrypted = self.mode.encrypt(&mut SILENCE_FRAME, &packet, &mut cipher)?;
+                    self.socket.send(&encrypted).await?;
                 }
                 UDPMessage::Audio(mut audio) => {
-                    let mut encrypted = self.mode.encrypt(&mut audio, &packet, &cipher)?;
-                    packet.append(&mut encrypted);
-                    self.socket.send(&packet).await?;
+                    debug!("Audio length: {}", audio.len());
+                    let mut encrypted = self.mode.encrypt(&mut audio, &packet, &mut cipher)?;
+                    debug!("Encrypted length: {}", encrypted.len());
+                    self.socket.send(&encrypted).await?;
                 }
             }
             self.sequence += 1;

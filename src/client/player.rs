@@ -76,7 +76,9 @@ impl Player {
         self.connection_manager = Some(VoiceManager::new(&self).await?);
         info!("Did we make it this far?");
         if let Some(connection_manager) = &self.connection_manager {
-            connection_manager.play_audio("SlowJams.opus").await?;
+            connection_manager
+                .play_audio(String::from("SlowJams.opus"))
+                .await?;
         }
         loop {
             tokio::select! {
@@ -93,23 +95,25 @@ impl Player {
 
     async fn handle_client_payload(&mut self, client_payload: ClientPayload) -> Result<()> {
         if let Some(connection_manager) = &self.connection_manager {
-        match client_payload.op {
-            Opcode::Destroy(_) => {
-                info!("Destroying player");
-                Err(anyhow::anyhow!("Destroying player"))
-            },
-            Opcode::Play(_) => {
-                info!("Playing track");
-                connection_manager.play_audio("SlowJams.opus").await?;
-                Ok(())
+            match client_payload.op {
+                Opcode::Destroy(_) => {
+                    info!("Destroying player");
+                    Err(anyhow::anyhow!("Destroying player"))
+                }
+                Opcode::Play(_) => {
+                    info!("Playing track");
+                    connection_manager
+                        .play_audio(String::from("SlowJams.opus"))
+                        .await?;
+                    Ok(())
+                }
+                _ => {
+                    info!("Received client payload: {:?}", client_payload);
+                    Ok(())
+                }
             }
-            _ => {
-                info!("Received client payload: {:?}", client_payload);
-                Ok(())
-            }
-        }
         } else {
-           Err(anyhow::anyhow!("No connection maanager"))
+            Err(anyhow::anyhow!("No connection maanager"))
         }
     }
 

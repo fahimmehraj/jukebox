@@ -8,6 +8,7 @@ use std::{
 };
 
 use anyhow::Result;
+use crypto_secretbox::{KeyInit, XSalsa20Poly1305};
 use futures_util::StreamExt;
 use log::{error, info};
 
@@ -16,7 +17,6 @@ use tokio::{
     sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender},
     time,
 };
-use xsalsa20poly1305::{KeyInit, XSalsa20Poly1305};
 
 use crate::{client::player::Player, opus_parse::OggStream};
 
@@ -116,7 +116,7 @@ impl VoiceManager {
         }
     }
 
-    pub async fn play_audio(&self, path: &str) -> Result<()> {
+    pub async fn play_audio(&self, path: String) -> Result<()> {
         self.gateway_tx.send(DiscordPayload::Speaking(Speaking {
             speaking: 1,
             delay: Some(0),
@@ -124,19 +124,14 @@ impl VoiceManager {
             ssrc: self.ssrc,
         }))?;
         info!("started playing audio");
-        let f = File::open(path).await?;
-        let mut stream = OggStream::new(f);
-        let mut interval = time::interval(time::Duration::from_millis(20));
         let weak_udp_tx = Arc::downgrade(&self.udp_tx);
         tokio::spawn(async move {
+            let f = File::open(path).await.unwrap();
+            let mut stream = OggStream::new(f);
+            let mut interval = time::interval(time::Duration::from_millis(5));
             loop {
                 interval.tick().await;
                 if let Some(udp_tx) = weak_udp_tx.upgrade() {
-                    // let mut buffer = vec![0; FRAME_SIZE_IN_BYTES];
-                    // let bytes_read = reader.read(&mut buffer).await.unwrap();
-                    // if bytes_read == 0 {
-                    //     break;
-                    // }
                     if let Some(packet) = stream.next().await {
                         udp_tx.send(UDPMessage::Audio(packet)).unwrap();
                     } else {
