@@ -14,7 +14,7 @@ use log::{debug, error, info};
 
 use tokio::{
     fs::File,
-    sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender},
+    sync::mpsc::{unbounded_channel, Sender, UnboundedReceiver, UnboundedSender},
     time,
 };
 
@@ -32,7 +32,7 @@ pub struct VoiceManager {
     ssrc: u32,
     gateway_rx: UnboundedReceiver<DiscordPayload>,
     gateway_tx: UnboundedSender<DiscordPayload>,
-    udp_tx: Arc<UnboundedSender<UDPMessage>>,
+    udp_tx: Arc<Sender<UDPMessage>>,
 }
 
 // i gotta clean this up
@@ -129,29 +129,25 @@ impl VoiceManager {
         tokio::spawn(async move {
             let f = File::open(path).await.unwrap();
             let mut stream = OggStream::new(f);
-            let loop_start = time::Instant::now();
-            let mut loops = 0;
             loop {
+                let loop_start = time::Instant::now();
                 if let Some(udp_tx) = weak_udp_tx.upgrade() {
                     if let Some(packet) = stream.next().await {
-                        udp_tx.send(UDPMessage::Audio(packet)).unwrap();
+                        if let Err(e) = udp_tx.send(UDPMessage::Audio(packet)).await {
+                            error!("error sending audio: {}", e);
+                        }
                     } else {
                         break;
                     }
                 } else {
                     break;
                 }
-                        loops += 1;
-                        let next_time = loop_start + time::Duration::from_millis(20) * loops;
-                        let delay = (time::Duration::from_millis(20)
-                            + (next_time - time::Instant::now()))
-                        .max(time::Duration::ZERO);
-                        debug!("time_elapsed: {:?}", next_time - time::Instant::now());
-                        debug!("delay: {:?}", delay);
-                        time::sleep(time::Duration::from_millis(20)).await;
+                let loop_end = time::Instant::now();
+                debug!("loop took: {:?}", loop_end - loop_start);
+                time::sleep(time::Duration::from_millis(18)).await;
             }
+            info!("Finished playing audio");
         });
-
         Ok(())
     }
 }

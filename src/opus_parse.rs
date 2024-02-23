@@ -75,16 +75,14 @@ impl<T: AsyncReadExt + Unpin> Stream for OggStream<T> {
                         if read_buf.filled().len() == 0 {
                             return Poll::Ready(None);
                         }
-                        debug!("filled portion: {:?}", read_buf.filled());
                         if read_buf.filled().len() < read_buf.capacity() {
-                            debug!("asdasd: filled portion: {:?}", read_buf.filled());
                             self.cursor = read_buf.filled().len();
                             self.buf = Some(buf);
                             return Poll::Pending;
                         }
                         let header = OggPageHeader::unpack(&buf.try_into().unwrap())
                             .expect("Invalid header");
-                        debug!("{:?}", &header);
+                        trace!("{:?}", &header);
                         self.current_page_header = Some(header);
                         self.read_mode = ReadMode::Segtable;
                         self.buf = None;
@@ -109,18 +107,12 @@ impl<T: AsyncReadExt + Unpin> Stream for OggStream<T> {
                 let mut read_buf = ReadBuf::new(&mut buf);
                 match Pin::new(&mut self.stream).poll_read(cx, &mut read_buf) {
                     Poll::Ready(Ok(())) => {
-                        debug!(
-                            "1: filled portion: {:?}, capacity: {:?}",
-                            read_buf.filled(),
-                            read_buf.capacity()
-                        );
                         if read_buf.filled().len() < read_buf.capacity() {
                             self.cursor = read_buf.filled().len();
                             self.buf = Some(buf);
                             return Poll::Pending;
                         }
                         self.segment_table = Some(buf);
-                        debug!("segtable: {:?}", self.segment_table.as_ref().unwrap());
                         self.read_mode = ReadMode::Packet;
                         self.buf = None;
                         self.cursor = 0;
@@ -141,28 +133,15 @@ impl<T: AsyncReadExt + Unpin> Stream for OggStream<T> {
                 .copied()
             {
                 Some(seg) => {
-                    debug!("Reading segment: {} with byte: {}", self.seg_idx, seg);
                     let mut buf = self.buf.take().unwrap_or(vec![0u8; seg as usize]);
                     if self.extend_buf {
-                        debug!("original buf length: {}", buf.len());
-                        debug!("extending buffer by: {}", seg as usize);
                         buf.extend_from_slice(&vec![0u8; seg as usize]);
                         self.extend_buf = false;
                     }
-                    debug!("inner buf length: {}", buf.len());
-                    if buf.len() > 255 {
-                        debug!("wow");
-                    }
                     let mut read_buf = ReadBuf::new(&mut buf);
-                    debug!(
-                        "cursor: {}, buf length: {}",
-                        self.cursor,
-                        read_buf.capacity()
-                    );
                     read_buf.advance(self.cursor);
                     match Pin::new(&mut self.stream).poll_read(cx, &mut read_buf) {
                         Poll::Ready(Ok(())) => {
-                            trace!("Current segment: {}", seg);
                             if read_buf.filled().len() < read_buf.capacity() {
                                 info!("Had to read more than once");
                                 warn!(
@@ -171,7 +150,6 @@ impl<T: AsyncReadExt + Unpin> Stream for OggStream<T> {
                                     read_buf.capacity()
                                 );
                                 self.cursor = read_buf.filled().len();
-                                debug!("bytes actually read: {}", self.cursor);
                                 self.buf = Some(buf);
                                 return Poll::Pending;
                             }
@@ -188,7 +166,7 @@ impl<T: AsyncReadExt + Unpin> Stream for OggStream<T> {
                         }
                         Poll::Ready(Err(e)) => {
                             error!("error reading packet: {}", e);
-                            return Poll::Ready(None);
+                            Poll::Ready(None)
                         }
                         Poll::Pending => {
                             self.buf = Some(buf);
@@ -197,7 +175,6 @@ impl<T: AsyncReadExt + Unpin> Stream for OggStream<T> {
                     }
                 }
                 None => {
-                    debug!("el oh el");
                     self.segment_table = None;
                     self.seg_idx = 0;
                     self.read_mode = ReadMode::Header;

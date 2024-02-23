@@ -77,7 +77,7 @@ impl Player {
         info!("Did we make it this far?");
         if let Some(connection_manager) = &self.connection_manager {
             connection_manager
-                .play_audio(String::from("SlowJams.opus"))
+                .play_audio(String::from("NothingNew.opus"))
                 .await?;
         }
         loop {
@@ -103,7 +103,7 @@ impl Player {
                 Opcode::Play(_) => {
                     info!("Playing track");
                     connection_manager
-                        .play_audio(String::from("SlowJams.opus"))
+                        .play_audio(String::from("NothingNew.opus"))
                         .await?;
                     Ok(())
                 }

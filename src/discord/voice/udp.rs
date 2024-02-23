@@ -1,8 +1,7 @@
 use std::{
     io::{Error, ErrorKind},
     net::SocketAddr,
-    str::FromStr,
-    sync::Arc,
+    str::FromStr, sync::Arc,
 };
 
 use anyhow::Result;
@@ -10,7 +9,7 @@ use byteorder::{ByteOrder, NetworkEndian};
 
 use crypto_secretbox::XSalsa20Poly1305;
 use log::{debug, error, trace};
-use tokio::net::UdpSocket;
+use tokio::{net::UdpSocket, sync::mpsc::{channel, Receiver, Sender}};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 
 use crate::crypto::EncryptionMode;
@@ -29,7 +28,7 @@ pub struct VoiceUDP {
     remote_addr: SocketAddr,
     local_addr: SocketAddr,
     mode: EncryptionMode,
-    player_rx: UnboundedReceiver<UDPMessage>,
+    player_rx: Receiver<UDPMessage>,
     socket: Arc<UdpSocket>,
     sequence: u16,
     timestamp: u32,
@@ -43,8 +42,8 @@ impl VoiceUDP {
         ssrc: u32,
         dest_ip: SocketAddr,
         mode: EncryptionMode,
-    ) -> Result<(Self, UnboundedSender<UDPMessage>)> {
-        let (udp_tx, player_rx) = unbounded_channel();
+    ) -> Result<(Self, Sender<UDPMessage>)> {
+        let (udp_tx, player_rx) = channel(1);
         let socket = Arc::new(UdpSocket::bind("0.0.0.0:0").await?);
         socket.connect(dest_ip).await?;
         let src_ip = Self::ip_discovery(Arc::clone(&socket), ssrc).await?;
