@@ -46,7 +46,7 @@ impl Client {
 
     pub async fn add_player(&self, voice_update: VoiceUpdate) -> Result<()> {
         let guild_id = voice_update.event.guild_id.clone();
-        let (client_tx, player_rx) = unbounded_channel();
+        let (client_tx, _player_rx) = unbounded_channel();
         let (mut player, player_tx) = Player::new(self.user_id(), voice_update, client_tx).await?;
         tokio::spawn(async move {
             if let Err(e) = player.start().await {

@@ -9,7 +9,7 @@ use futures_util::{
     stream::{SplitSink, SplitStream},
     SinkExt, StreamExt,
 };
-use log::{error, info};
+use log::{error};
 use tokio::{
     net::TcpStream,
     sync::{

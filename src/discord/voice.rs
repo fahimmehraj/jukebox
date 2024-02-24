@@ -142,9 +142,9 @@ impl VoiceManager {
                 } else {
                     break;
                 }
-                let loop_end = time::Instant::now();
-                debug!("loop took: {:?}", loop_end - loop_start);
-                time::sleep(time::Duration::from_millis(18)).await;
+                let elapsed = time::Instant::now().duration_since(loop_start);
+                debug!("loop took: {:?}", elapsed);
+                time::sleep(time::Duration::from_millis(19) - elapsed).await;
             }
             info!("Finished playing audio");
         });

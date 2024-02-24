@@ -62,7 +62,7 @@ async fn handle_websocket(headers: Headers, websocket: warp::ws::WebSocket) {
     let (tx, mut rx) = websocket.split();
     let client = Arc::new(Client::new(headers, tx));
 
-    let (player_tx, mut player_rx) = unbounded_channel::<String>();
+    let (_player_tx, mut player_rx) = unbounded_channel::<String>();
 
     let weak_client = Arc::downgrade(&client);
     tokio::spawn(async move {

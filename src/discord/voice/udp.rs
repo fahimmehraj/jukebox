@@ -8,9 +8,8 @@ use anyhow::Result;
 use byteorder::{ByteOrder, NetworkEndian};
 
 use crypto_secretbox::XSalsa20Poly1305;
-use log::{debug, error, trace};
+use log::error;
 use tokio::{net::UdpSocket, sync::mpsc::{channel, Receiver, Sender}};
-use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 
 use crate::crypto::EncryptionMode;
 
@@ -86,15 +85,15 @@ impl VoiceUDP {
 
             match msg {
                 UDPMessage::Silence => {
-                    let mut encrypted = self.mode.encrypt(&mut SILENCE_FRAME, &packet, &mut cipher)?;
+                    let encrypted = self.mode.encrypt(&SILENCE_FRAME, &packet, &mut cipher)?;
                     if let Err(e) = self.socket.send(&encrypted).await {
-                        error!("Packet dropped?");
+                        error!("Packet dropped? {:?}", e);
                     }
                 }
-                UDPMessage::Audio(mut audio) => {
-                    let encrypted = self.mode.encrypt(&mut audio, &packet, &mut cipher)?;
+                UDPMessage::Audio(audio) => {
+                    let encrypted = self.mode.encrypt(&audio, &packet, &mut cipher)?;
                     if let Err(e) = self.socket.send(&encrypted).await {
-                        error!("Packet dropped?");
+                        error!("Packet dropped? {:?}", e);
                     }
                 }
             }

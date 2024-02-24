@@ -1,12 +1,10 @@
 use std::{
-    borrow::BorrowMut,
-    iter::Peekable,
     pin::Pin,
     task::{Context, Poll},
     vec,
 };
 
-use log::{debug, error, info, trace, warn};
+use log::{error, info, trace, warn};
 use packed_struct::prelude::*;
 use tokio::io::{AsyncRead, AsyncReadExt, ReadBuf};
 use tokio_stream::Stream;
