@@ -2,3 +2,4 @@
 /.vscode/
 *.opus
 .direnv
+.DS_Store

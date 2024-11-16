@@ -6,7 +6,7 @@ use std::{
 
 use anyhow::Result;
 
-use log::info;
+use tracing::info;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 
 use crate::discord::voice::VoiceManager;

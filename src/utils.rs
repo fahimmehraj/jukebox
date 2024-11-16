@@ -1,12 +1,9 @@
-use std::{
-    fmt::Debug,
-    io::ErrorKind,
-};
+use std::{fmt::Debug, io::ErrorKind};
 
 use anyhow::Result;
 use futures_util::{stream::SplitStream, Stream, StreamExt};
-use log::{debug, error};
 use tokio_tungstenite::tungstenite::Message as DiscordMessage;
+use tracing::{debug, error};
 use warp::ws::Message as ClientMessage;
 
 pub trait Representable {

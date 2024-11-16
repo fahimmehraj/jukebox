@@ -1,4 +1,4 @@
-use log::info;
+use tracing::info;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use serde_with::{serde_as, DefaultOnError};
@@ -54,6 +54,12 @@ impl Serialize for DiscordPayload {
             d: DiscordPayload_<'a>,
         }
 
+        #[derive(Serialize)]
+        struct HeartbeatPayload {
+            op: u8,
+            d: u128
+        }
+
         match self {
             DiscordPayload::Identify(payload) => TypedDiscordPayload {
                 op: 0,
@@ -65,9 +71,9 @@ impl Serialize for DiscordPayload {
                 d: DiscordPayload_::SelectProtocol(payload),
             }
             .serialize(serializer),
-            DiscordPayload::Heartbeat(payload) => TypedDiscordPayload {
+            DiscordPayload::Heartbeat(payload) => HeartbeatPayload {
                 op: 3,
-                d: DiscordPayload_::Heartbeat(payload),
+                d: payload.nonce,
             }
             .serialize(serializer),
             DiscordPayload::Speaking(payload) => TypedDiscordPayload {
@@ -111,7 +117,8 @@ impl<'de> serde::Deserialize<'de> for DiscordPayload {
                 serde_json::from_value(wrapper.d).unwrap(),
             )),
             6 => Ok(DiscordPayload::HeartbeatACK(
-                serde_json::from_value(wrapper.d).unwrap(),
+                // d: serde_json::from_value(wrapper.d).unwrap(),
+                HeartbeatACK { d: serde_json::from_value(wrapper.d).unwrap() }
             )),
             8 => Ok(DiscordPayload::Hello(
                 serde_json::from_value(wrapper.d).unwrap(),
@@ -199,7 +206,7 @@ pub struct Speaking {
 
 #[derive(Deserialize, Debug)]
 pub struct HeartbeatACK {
-    pub nonce: u64,
+    pub d: u64,
 }
 
 #[derive(Serialize, Debug)]

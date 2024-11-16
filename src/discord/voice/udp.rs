@@ -8,7 +8,7 @@ use anyhow::Result;
 use byteorder::{ByteOrder, NetworkEndian};
 
 use crypto_secretbox::XSalsa20Poly1305;
-use log::error;
+use tracing::error;
 use tokio::{net::UdpSocket, sync::mpsc::{channel, Receiver, Sender}};
 
 use crate::crypto::EncryptionMode;

@@ -4,7 +4,7 @@ use std::{
     vec,
 };
 
-use log::{error, info, trace, warn};
+use tracing::{error, info, trace, warn};
 use packed_struct::prelude::*;
 use tokio::io::{AsyncRead, AsyncReadExt, ReadBuf};
 use tokio_stream::Stream;

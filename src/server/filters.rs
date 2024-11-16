@@ -1,6 +1,6 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, net::SocketAddr, sync::Arc};
 
-use log::{error, info};
+use tracing::{error, info};
 use warp::Filter;
 
 use futures_util::StreamExt;
@@ -41,13 +41,14 @@ fn with_headers(
 ) -> impl Filter<Extract = (Headers,), Error = warp::Rejection> + Clone {
     warp::any()
         .map(move || password.clone())
+        .and(warp::addr::remote())
         .and(warp::header::<String>("Authorization"))
         .and(warp::header::<String>("User-Id"))
         .and(warp::header::<String>("Client-Name"))
         .and_then(
-            move |password, authorization, user_id, client_name| async move {
+            move |password, addr: Option<SocketAddr>, authorization, user_id, client_name| async move {
                 if let Some(headers) =
-                    Headers::new(authorization, user_id, client_name).verify(password)
+                    Headers::new(addr.unwrap(), authorization, user_id, client_name).verify(password)
                 {
                     Ok(headers)
                 } else {
@@ -57,8 +58,9 @@ fn with_headers(
         )
 }
 
+#[tracing::instrument(skip(websocket))]
 async fn handle_websocket(headers: Headers, websocket: warp::ws::WebSocket) {
-    info!("Websocket connected: {:?}", headers);
+    info!("Websocket connected!");
     let (tx, mut rx) = websocket.split();
     let client = Arc::new(Client::new(headers, tx));
 

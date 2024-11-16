@@ -10,7 +10,7 @@ use std::{
 use anyhow::Result;
 use crypto_secretbox::{KeyInit, XSalsa20Poly1305};
 use futures_util::StreamExt;
-use log::{debug, error, info};
+use tracing::{debug, error, info};
 
 use tokio::{
     fs::File,
@@ -124,30 +124,53 @@ impl VoiceManager {
             user_id: None,
             ssrc: self.ssrc,
         }))?;
+        
         info!("started playing audio");
         let weak_udp_tx = Arc::downgrade(&self.udp_tx);
+        
+        // Create a bounded channel for buffering audio packets
+        let (packet_tx, mut packet_rx) = tokio::sync::mpsc::channel(32); // Buffer size of 32 packets
+        
+        // Spawn a separate task for reading from OggStream
         tokio::spawn(async move {
             let f = File::open(path).await.unwrap();
             let mut stream = OggStream::new(f);
+            
+            while let Some(packet) = stream.next().await {
+                if packet_tx.send(packet).await.is_err() {
+                    // Channel closed, receiver dropped
+                    break;
+                }
+            }
+        });
+
+        // Main playback loop
+        tokio::spawn(async move {
+            let mut interval = time::interval(time::Duration::from_millis(20));
+            
             loop {
-                let loop_start = time::Instant::now();
+                interval.tick().await;
+                
                 if let Some(udp_tx) = weak_udp_tx.upgrade() {
-                    if let Some(packet) = stream.next().await {
-                        if let Err(e) = udp_tx.send(UDPMessage::Audio(packet)).await {
-                            error!("error sending audio: {}", e);
+                    match packet_rx.recv().await {
+                        Some(packet) => {
+                            if let Err(e) = udp_tx.send(UDPMessage::Audio(packet)).await {
+                                error!("error sending audio: {}", e);
+                                break;
+                            }
                         }
-                    } else {
-                        break;
+                        None => {
+                            // Channel closed, no more packets
+                            break;
+                        }
                     }
                 } else {
                     break;
                 }
-                let elapsed = time::Instant::now().duration_since(loop_start);
-                debug!("loop took: {:?}", elapsed);
-                time::sleep(time::Duration::from_millis(19) - elapsed).await;
             }
             info!("Finished playing audio");
         });
+
         Ok(())
     }
 }

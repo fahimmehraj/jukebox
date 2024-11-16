@@ -1,5 +1,4 @@
-use std::{net::SocketAddr, sync::Arc};
-
+use std::{fmt, net::SocketAddr, sync::Arc};
 
 mod filters;
 
@@ -8,16 +7,22 @@ struct Unauthorized;
 
 impl warp::reject::Reject for Unauthorized {}
 
-#[derive(Debug)]
 pub struct Headers {
-    pub authorization: String,
+    pub client_addr: SocketAddr,
     pub user_id: String,
     pub client_name: String,
+    authorization: String,
 }
 
 impl Headers {
-    pub fn new(authorization: String, user_id: String, client_name: String) -> Self {
+    pub fn new(
+        client_addr: SocketAddr,
+        authorization: String,
+        user_id: String,
+        client_name: String,
+    ) -> Self {
         Self {
+            client_addr,
             authorization,
             user_id,
             client_name,
@@ -29,6 +34,16 @@ impl Headers {
             return None;
         }
         Some(self)
+    }
+}
+
+impl fmt::Debug for Headers {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt.debug_struct("Foo")
+            .field("client_addr", &self.client_addr)
+            .field("user_id", &self.user_id)
+            .field("client_name", &self.client_name)
+            .finish()
     }
 }
 

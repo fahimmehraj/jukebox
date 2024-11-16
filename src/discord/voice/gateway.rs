@@ -9,7 +9,7 @@ use futures_util::{
     stream::{SplitSink, SplitStream},
     SinkExt, StreamExt,
 };
-use log::{error};
+use tracing::{error};
 use tokio::{
     net::TcpStream,
     sync::{
@@ -41,7 +41,7 @@ impl VoiceGateway {
         player: &Player,
         tx: UnboundedSender<DiscordPayload>,
     ) -> Result<(VoiceGateway, UnboundedSender<DiscordPayload>)> {
-        let url = match url::Url::parse(&format!("wss://{}?v=4", player.endpoint())) {
+        let url = match url::Url::parse(&format!("wss://{}?v=7", player.endpoint())) {
             Ok(url) => url,
             Err(e) => return Err(Error::new(ErrorKind::InvalidInput, e.to_string()))?,
         };

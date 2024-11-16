@@ -5,12 +5,12 @@ use std::{collections::HashMap, sync::Arc};
 
 use anyhow::Result;
 use futures_util::{stream::SplitSink, SinkExt};
-use log::{error, info};
 use player::Player;
 use tokio::sync::{
     mpsc::{unbounded_channel, UnboundedSender},
     RwLock,
 };
+use tracing::{error, info};
 use warp::ws::{Message, WebSocket};
 
 use payloads::ClientPayload;
