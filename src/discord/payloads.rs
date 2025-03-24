@@ -138,7 +138,7 @@ impl From<DiscordPayload> for Message {
     fn from(payload: DiscordPayload) -> Self {
         let text = serde_json::to_string(&payload).unwrap();
         info!("{:#?}", text);
-        Message::Text(text)
+        Message::Text(text.into())
     }
 }
 

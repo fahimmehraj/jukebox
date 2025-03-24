@@ -5,3 +5,4 @@ pub mod discord;
 pub mod server;
 pub mod utils;
 pub mod opus_parse;
+pub mod webm_parse;

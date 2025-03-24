@@ -6,7 +6,7 @@ use std::{
 
 use tracing::{error, info, trace, warn};
 use packed_struct::prelude::*;
-use tokio::io::{AsyncRead, AsyncReadExt, ReadBuf};
+use tokio::io::{AsyncRead, ReadBuf};
 use tokio_stream::Stream;
 
 #[derive(PackedStruct, Debug, Copy, Clone)]
@@ -37,7 +37,7 @@ pub struct OggPageHeader {
     segnum: u8,
 }
 
-pub struct OggStream<T: AsyncReadExt + Unpin> {
+pub struct OggStream<T: AsyncRead + Unpin> {
     stream: T,
     segment_table: Option<Vec<u8>>,
     buf: Option<Vec<u8>>,
@@ -54,7 +54,7 @@ enum ReadMode {
     Packet,
 }
 
-impl<T: AsyncReadExt + Unpin> Stream for OggStream<T> {
+impl<T: AsyncRead + Unpin> Stream for OggStream<T> {
     type Item = Vec<u8>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Vec<u8>>> {

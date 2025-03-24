@@ -1,5 +1,7 @@
 /target
 /.vscode/
 *.opus
+*.ogg
+*.webm
 .direnv
 .DS_Store

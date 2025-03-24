@@ -30,7 +30,7 @@ impl Representable for DiscordMessage {
         if self.is_close() {
             return Err(anyhow::anyhow!(ErrorKind::ConnectionAborted).context(self.into_text()?));
         }
-        Ok(self.into_data())
+        Ok(self.into_data().to_vec())
     }
 }
 

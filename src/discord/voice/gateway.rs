@@ -45,7 +45,7 @@ impl VoiceGateway {
             Ok(url) => url,
             Err(e) => return Err(Error::new(ErrorKind::InvalidInput, e.to_string()))?,
         };
-        let (ws_stream, _) = connect_async(url).await?;
+        let (ws_stream, _) = connect_async(url.as_str()).await?;
         let (write, read) = ws_stream.split();
         let (gateway_tx, manager_rx) = unbounded_channel();
         let gateway = Self {
