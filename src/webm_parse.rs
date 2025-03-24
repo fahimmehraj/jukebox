@@ -3,19 +3,18 @@ use std::{
     pin::Pin,
     task::{Context, Poll},
 };
-use tokio::io::{AsyncBufRead, AsyncRead, AsyncSeek, BufReader, ReadBuf};
+use tokio::io::{AsyncRead, AsyncSeek, BufReader, ReadBuf};
 use tokio_stream::Stream;
-use tracing::{error, trace, warn};
+use tracing::error;
 
 macro_rules! ready_next {
-  ($e:expr) => {
-      match $e {
-          Poll::Pending => return Poll::Pending,
-          Poll::Ready(Some(t)) => t,
-          Poll::Ready(None) => return Poll::Ready(None)
-          // Poll::Ready(Err(_)) => return Poll::Ready(None),
-      }
-  };
+    ($e:expr) => {
+        match $e {
+            Poll::Pending => return Poll::Pending,
+            Poll::Ready(Some(t)) => t,
+            Poll::Ready(None) => return Poll::Ready(None),
+        }
+    };
 }
 
 #[derive(Debug, Clone)]
@@ -49,7 +48,7 @@ enum EbmlElementId {
     Audio,
     AudioChannels,
     Void,
-    Unknown(u32), // Use for IDs that don't have a specific variant
+    Unknown, // Use for IDs that don't have a specific variant
 }
 
 impl From<u32> for EbmlElementId {
@@ -73,14 +72,14 @@ impl From<u32> for EbmlElementId {
             0xE1 => EbmlElementId::Audio,
             0x9F => EbmlElementId::AudioChannels,
             0xEC => EbmlElementId::Void,
-            _ => EbmlElementId::Unknown(id),
+            _ => EbmlElementId::Unknown,
         }
     }
 }
 
-pub struct WebmStream<T: AsyncBufRead + AsyncSeek + Unpin> {
+pub struct WebmStream<T: AsyncRead + AsyncSeek + Unpin> {
     stream: T,
-    stack: Vec<EbmlElementId>,
+    current_element: Option<EbmlElementId>,
     parser_state: ParserStateMachine,
     buf: Option<Vec<u8>>,
     cursor: usize,
@@ -88,7 +87,7 @@ pub struct WebmStream<T: AsyncBufRead + AsyncSeek + Unpin> {
     simple_blocks: u64,
 }
 
-impl<T: AsyncBufRead + AsyncSeek + Unpin> WebmStream<T> {
+impl<T: AsyncRead + AsyncSeek + Unpin> WebmStream<T> {
     fn read_exact_bytes(
         &mut self,
         cx: &mut Context<'_>,
@@ -101,7 +100,6 @@ impl<T: AsyncBufRead + AsyncSeek + Unpin> WebmStream<T> {
 
         loop {
             let rem = read_buf.remaining();
-            trace!(rem);
             if rem == 0 {
                 self.cursor = 0;
                 return Poll::Ready(Some(buf));
@@ -120,7 +118,6 @@ impl<T: AsyncBufRead + AsyncSeek + Unpin> WebmStream<T> {
                 Poll::Pending => {
                     self.cursor = read_buf.filled().len();
                     self.buf = Some(buf);
-                    warn!("read more than once");
                     return Poll::Pending;
                 }
             }
@@ -128,7 +125,7 @@ impl<T: AsyncBufRead + AsyncSeek + Unpin> WebmStream<T> {
     }
 }
 
-impl<T: AsyncBufRead + AsyncSeek + Unpin + Send> Stream for WebmStream<T> {
+impl<T: AsyncRead + AsyncSeek + Unpin + Send> Stream for WebmStream<T> {
     type Item = Vec<u8>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Vec<u8>>> {
@@ -139,24 +136,17 @@ impl<T: AsyncBufRead + AsyncSeek + Unpin + Send> Stream for WebmStream<T> {
                 let first_byte = buf[0];
 
                 let size = first_byte.leading_zeros() as usize + 1;
-                if size == 1 {
-                    self.stack.push((first_byte as u32).into());
-                    self.parser_state = ParserStateMachine::ReadElementSizeLength();
-                    return self.poll_next(cx);
-                } else {
-                    self.parser_state = ParserStateMachine::ReadElementId(size, first_byte as u32);
-                    return self.poll_next(cx);
-                }
+                self.parser_state = ParserStateMachine::ReadElementId(size, first_byte as u32);
+                return self.poll_next(cx);
             }
             ParserStateMachine::ReadElementId(size, mut id) => {
                 let id_bytes = ready_next!(self.read_exact_bytes(cx, size - 1));
 
-                for byte in id_bytes.into_iter() {
-                    id = id << 8;
-                    id |= byte as u32;
-                }
+                id = id_bytes
+                    .into_iter()
+                    .fold(id, |acc, byte| (acc << 8) | byte as u32);
 
-                self.stack.push(id.into());
+                self.current_element = Some(id.into());
                 self.parser_state = ParserStateMachine::ReadElementSizeLength();
                 return self.poll_next(cx);
             }
@@ -171,17 +161,17 @@ impl<T: AsyncBufRead + AsyncSeek + Unpin + Send> Stream for WebmStream<T> {
                 let size_bytes = ready_next!(self.read_exact_bytes(cx, size_of_vint - 1));
 
                 let mask = (1 << 8 - size_of_vint) - 1;
-                element_size &= mask;
-                for byte in size_bytes.into_iter() {
-                    element_size = element_size << 8;
-                    element_size |= byte as u64
-                }
+                element_size = size_bytes
+                    .into_iter()
+                    .fold(element_size & mask, |acc, byte| (acc << 8) | byte as u64);
 
                 self.parser_state = ParserStateMachine::ReadElementData(element_size as usize);
                 return self.poll_next(cx);
             }
             ParserStateMachine::ReadElementData(element_size) => {
-                let current_element = self.stack.last().unwrap();
+                let current_element = self.current_element.expect(
+                    "ParserStateMachine should always enter ReadElementId before ReadElementData",
+                );
 
                 match current_element {
                     EbmlElementId::Header => {
@@ -199,7 +189,6 @@ impl<T: AsyncBufRead + AsyncSeek + Unpin + Send> Stream for WebmStream<T> {
                         if webm_string != "webm" {
                             error!("Expected DocType webm, got: {}", webm_string);
                         }
-                        self.stack.pop();
                         self.parser_state = ParserStateMachine::ReadElementIdLength;
                     }
                     EbmlElementId::Segment => {
@@ -211,13 +200,13 @@ impl<T: AsyncBufRead + AsyncSeek + Unpin + Send> Stream for WebmStream<T> {
                     EbmlElementId::SimpleBlock => {
                         let mut data = ready_next!(self.read_exact_bytes(cx, element_size));
                         // TODO: parse vint, make sure block corresponds to opus track
-                        self.stack.pop();
                         self.parser_state = ParserStateMachine::ReadElementIdLength;
                         self.simple_blocks += 1;
-                        trace!("Num simple blocks: {}", self.simple_blocks);
                         return Poll::Ready(Some(data.split_off(4)));
                     }
                     _ => {
+                        // Skip over element_size bytes since we don't care about
+                        // the current element
                         if !self.seek_in_progress {
                             let start_seek = Pin::new(&mut self.stream)
                                 .start_seek(SeekFrom::Current(element_size as i64));
@@ -227,12 +216,9 @@ impl<T: AsyncBufRead + AsyncSeek + Unpin + Send> Stream for WebmStream<T> {
                             }
                             self.seek_in_progress = true;
                         }
-                        if let Poll::Ready(new_pos) = Pin::new(&mut self.stream).poll_complete(cx) {
-                            trace!("New Position: {}", new_pos.unwrap());
-                        } else {
+                        if Pin::new(&mut self.stream).poll_complete(cx).is_pending() {
                             return Poll::Pending;
                         }
-                        self.stack.pop();
                         self.seek_in_progress = false;
                         self.parser_state = ParserStateMachine::ReadElementIdLength;
                     }
@@ -247,7 +233,7 @@ impl<R: AsyncRead + AsyncSeek + Unpin> WebmStream<BufReader<R>> {
     pub fn new(stream: R) -> Self {
         WebmStream {
             stream: BufReader::new(stream),
-            stack: Vec::new(),
+            current_element: None,
             parser_state: ParserStateMachine::ReadElementIdLength,
             buf: None,
             cursor: 0,
