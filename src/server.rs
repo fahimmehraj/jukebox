@@ -1,12 +1,8 @@
-use std::{fmt, net::SocketAddr, sync::Arc};
+use std::{fmt, net::SocketAddr};
 
-mod filters;
+mod routes;
 
-#[derive(Debug)]
-struct Unauthorized;
-
-impl warp::reject::Reject for Unauthorized {}
-
+#[derive(Clone)]
 pub struct Headers {
     pub client_addr: SocketAddr,
     pub user_id: String,
@@ -17,20 +13,20 @@ pub struct Headers {
 impl Headers {
     pub fn new(
         client_addr: SocketAddr,
-        authorization: String,
-        user_id: String,
-        client_name: String,
+        authorization: &str,
+        user_id: &str,
+        client_name: &str,
     ) -> Self {
         Self {
             client_addr,
-            authorization,
-            user_id,
-            client_name,
+            authorization: authorization.to_string(),
+            user_id: user_id.to_string(),
+            client_name: client_name.to_string(),
         }
     }
 
-    pub fn verify(self, authorization: Arc<String>) -> Option<Self> {
-        if self.authorization != *authorization {
+    pub fn verify(self, authorization: &str) -> Option<Self> {
+        if self.authorization != authorization {
             return None;
         }
         Some(self)
@@ -58,9 +54,14 @@ impl Server {
         Self { password, address }
     }
 
-    pub async fn run(self) {
-        let password = Arc::new(self.password);
-        let routes = filters::routes(password);
-        warp::serve(routes).run(self.address).await;
+    pub async fn run(self) -> Result<(), std::io::Error> {
+        let app = routes::app(self.password);
+        let listener = tokio::net::TcpListener::bind(self.address).await?;
+        axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .await?;
+        Ok(())
     }
 }

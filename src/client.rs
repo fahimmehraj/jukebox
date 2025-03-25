@@ -11,13 +11,16 @@ use tokio::sync::{
     RwLock,
 };
 use tracing::{error, info};
-use warp::ws::{Message, WebSocket};
 
 use payloads::ClientPayload;
 
 use crate::server::Headers;
 
 use self::payloads::VoiceUpdate;
+
+// Axum Websocket, not Tungstenite
+type WebSocket = axum::extract::ws::WebSocket;
+type Message = axum::extract::ws::Message;
 
 pub struct Client {
     user_id: Arc<String>,
@@ -27,7 +30,10 @@ pub struct Client {
 }
 
 impl Client {
-    pub fn new(headers: Headers, sender: SplitSink<WebSocket, Message>) -> Self {
+    pub fn new(
+        headers: Headers,
+        sender: SplitSink<WebSocket, Message>,
+    ) -> Self {
         Self {
             user_id: Arc::new(headers.user_id),
             client_name: headers.client_name,

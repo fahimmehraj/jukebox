@@ -1,6 +1,7 @@
 use anyhow::Result;
 use jukebox::config::Configuration;
 use tracing::info;
+use tracing_subscriber::fmt::format::FmtSpan;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -13,10 +14,11 @@ async fn main() -> Result<()> {
         .with_line_number(true)
         .with_thread_ids(true)
         .with_target(false)
+        .with_span_events(FmtSpan::FULL)
         .init();
     info!("Starting");
     let server_config = Configuration::parse_from_file("application.yml").await?;
     let server = server_config.compose()?;
-    server.run().await;
+    server.run().await?;
     Ok(())
 }

@@ -1,10 +1,10 @@
-use std::{fmt::Debug, io::ErrorKind};
+use std::fmt::Debug;
 
 use anyhow::Result;
+use axum::extract::ws::Message as ClientMessage;
 use futures_util::{stream::SplitStream, Stream, StreamExt};
 use tokio_tungstenite::tungstenite::Message as DiscordMessage;
 use tracing::{debug, error};
-use warp::ws::Message as ClientMessage;
 
 pub trait Representable {
     fn represent(self) -> Result<Vec<u8>>;
@@ -12,23 +12,27 @@ pub trait Representable {
 
 impl Representable for ClientMessage {
     fn represent(self) -> Result<Vec<u8>> {
-        if self.is_close() {
+        if let ClientMessage::Close(e) = self {
             return Err(
-                anyhow::anyhow!(ErrorKind::ConnectionAborted).context(format!(
+                anyhow::anyhow!(std::io::ErrorKind::ConnectionAborted).context(format!(
                     "{:?}",
-                    self.close_frame()
-                        .unwrap_or((0, "No close reason provided"))
+                    e.unwrap_or(axum::extract::ws::CloseFrame {
+                        code: 0,
+                        reason: "No Close reason provided".into()
+                    })
                 )),
             );
         }
-        Ok(self.as_bytes().to_vec())
+        Ok(self.into_data().to_vec())
     }
 }
 
 impl Representable for DiscordMessage {
     fn represent(self) -> Result<Vec<u8>> {
         if self.is_close() {
-            return Err(anyhow::anyhow!(ErrorKind::ConnectionAborted).context(self.into_text()?));
+            return Err(
+                anyhow::anyhow!(std::io::ErrorKind::ConnectionAborted).context(self.into_text()?)
+            );
         }
         Ok(self.into_data().to_vec())
     }
@@ -48,6 +52,8 @@ where
         Ok(serde_json::from_slice(&msg.represent()?[..])?)
     } else {
         error!("websocket closed?");
-        return Err(anyhow::anyhow!(ErrorKind::ConnectionAborted).context("websocket closed?"));
+        return Err(
+            anyhow::anyhow!(std::io::ErrorKind::ConnectionAborted).context("websocket closed?")
+        );
     }
 }
