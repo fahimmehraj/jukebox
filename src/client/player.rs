@@ -6,24 +6,31 @@ use std::{
 
 use anyhow::Result;
 
-use tracing::info;
+use derivative::Derivative;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
+use tracing::info;
 
 use crate::discord::voice::VoiceManager;
 
 use super::payloads::{ClientPayload, Opcode, VoiceUpdate};
 
+#[derive(Derivative)]
+#[derivative(Debug)]
 pub struct Player {
     user_id: Arc<String>,
     guild_id: String,
     session_id: String,
+    #[derivative(Debug = "ignore")]
     token: String,
     endpoint: Arc<String>,
     // A channel for receiving messages from the client to this player
+    #[derivative(Debug = "ignore")]
     client_rx: UnboundedReceiver<ClientPayload>,
     // A channel for sending messages from this player to the client
+    #[derivative(Debug = "ignore")]
     client_tx: UnboundedSender<ClientPayload>,
     connection_manager: Option<VoiceManager>,
+
     track: Option<String>,
     start_time: Option<Duration>,
     end_time: Option<Duration>,
@@ -33,6 +40,7 @@ pub struct Player {
 }
 
 impl Player {
+    #[tracing::instrument(skip(client_tx))]
     pub async fn new(
         user_id: Arc<String>,
         voice_update: VoiceUpdate,
@@ -67,14 +75,13 @@ impl Player {
         }
     }
 
+    #[tracing::instrument]
     pub async fn start(&mut self) -> Result<()> {
         // Send the identify payload
         // Receive Ready payload
         // Send Select Protocol payload
         // Receive Session Description payload
-        info!("Made it this far");
         self.connection_manager = Some(VoiceManager::new(&self).await?);
-        info!("Did we make it this far?");
         if let Some(connection_manager) = &self.connection_manager {
             connection_manager
                 .play_audio(String::from("Ghost Town.webm"))

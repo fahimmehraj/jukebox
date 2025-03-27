@@ -1,45 +1,21 @@
-use std::{fmt, net::SocketAddr};
+use std::net::SocketAddr;
 
 mod routes;
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct Headers {
     pub client_addr: SocketAddr,
     pub user_id: String,
     pub client_name: String,
-    authorization: String,
 }
 
 impl Headers {
-    pub fn new(
-        client_addr: SocketAddr,
-        authorization: &str,
-        user_id: &str,
-        client_name: &str,
-    ) -> Self {
+    pub fn new(client_addr: SocketAddr, user_id: &str, client_name: &str) -> Self {
         Self {
             client_addr,
-            authorization: authorization.to_string(),
             user_id: user_id.to_string(),
             client_name: client_name.to_string(),
         }
-    }
-
-    pub fn verify(self, authorization: &str) -> Option<Self> {
-        if self.authorization != authorization {
-            return None;
-        }
-        Some(self)
-    }
-}
-
-impl fmt::Debug for Headers {
-    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt.debug_struct("Foo")
-            .field("client_addr", &self.client_addr)
-            .field("user_id", &self.user_id)
-            .field("client_name", &self.client_name)
-            .finish()
     }
 }
 

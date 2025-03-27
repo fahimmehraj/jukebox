@@ -343,6 +343,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "derivative"
+version = "2.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fcc3dd5e9e9c0b295d6e1e4d811fb6f157d5ffd784b8d202fc62eac8035a770b"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 1.0.109",
+]
+
+[[package]]
 name = "digest"
 version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -615,14 +626,15 @@ dependencies = [
 
 [[package]]
 name = "iana-time-zone"
-version = "0.1.61"
+version = "0.1.62"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "235e081f3925a06703c2d0117ea8b91f042756fd6e7a6e5d901e8ca1a996b220"
+checksum = "b2fd658b06e56721792c5df4475705b6cda790e9298d19d2f8af083457bcd127"
 dependencies = [
  "android_system_properties",
  "core-foundation-sys",
  "iana-time-zone-haiku",
  "js-sys",
+ "log",
  "wasm-bindgen",
  "windows-core",
 ]
@@ -835,7 +847,9 @@ dependencies = [
  "anyhow",
  "axum",
  "byteorder",
+ "bytes",
  "crypto_secretbox",
+ "derivative",
  "futures-util",
  "packed_struct",
  "rand 0.8.5",
@@ -892,9 +906,9 @@ dependencies = [
 
 [[package]]
 name = "log"
-version = "0.4.26"
+version = "0.4.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "30bde2b3dc3671ae49d8e2e9f044c7c005836e7a023ee57cffa25ab82764bb9e"
+checksum = "13dc2df351e3202783a1fe0d44375f7295ffb4049267b0f3018346dc122a1d94"
 
 [[package]]
 name = "matchers"
@@ -1374,11 +1388,20 @@ dependencies = [
 
 [[package]]
 name = "serde"
-version = "1.0.219"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5f0e2c6ed6606019b4e29e69dbaba95b11854410e5347d525002456dbbb786b6"
+version = "1.0.208"
+source = "git+https://github.com/Astavie/serde.git?branch=integer-tags-for-enums#e210c70417fb37d0b63d27ea435b90874701247d"
 dependencies = [
- "serde_derive",
+ "serde_derive 1.0.208",
+]
+
+[[package]]
+name = "serde_derive"
+version = "1.0.208"
+source = "git+https://github.com/Astavie/serde.git?branch=integer-tags-for-enums#e210c70417fb37d0b63d27ea435b90874701247d"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.100",
 ]
 
 [[package]]
@@ -1438,7 +1461,7 @@ dependencies = [
  "indexmap 1.9.3",
  "indexmap 2.8.0",
  "serde",
- "serde_derive",
+ "serde_derive 1.0.219",
  "serde_json",
  "serde_with_macros",
  "time",

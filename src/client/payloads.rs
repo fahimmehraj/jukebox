@@ -1,9 +1,9 @@
 mod transformations;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use transformations::*;
 
-#[derive(Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct ClientPayload {
     pub guild_id: String,
@@ -11,7 +11,14 @@ pub struct ClientPayload {
     pub op: Opcode,
 }
 
-#[derive(Deserialize, Debug)]
+impl From<ClientPayload> for axum::extract::ws::Message {
+    fn from(value: ClientPayload) -> Self {
+        let json = serde_json::to_string(&value).unwrap();
+        axum::extract::ws::Message::Text(json.into())
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 #[serde(tag = "op")]
 pub enum Opcode {
@@ -25,14 +32,14 @@ pub enum Opcode {
     Destroy(Destroy),
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct VoiceUpdate {
     pub session_id: String,
     pub event: VoiceUpdateEvent,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct VoiceUpdateEvent {
     pub token: String,
     pub guild_id: String,
@@ -41,7 +48,7 @@ pub struct VoiceUpdateEvent {
 
 // possibly change track type to custom type
 
-#[derive(Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Play {
     pub track: String,
@@ -52,29 +59,29 @@ pub struct Play {
     pub pause: Option<bool>,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Stop {}
 
-#[derive(Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Pause {
     pub pause: bool,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Seek {
     pub position: u64,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Volume {
     pub volume: i16,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Filters {
     pub volume: Option<f64>,
@@ -88,6 +95,6 @@ pub struct Filters {
     pub low_pass: Option<LowPass>,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Destroy {}

@@ -9,6 +9,7 @@ use std::{
 
 use anyhow::Result;
 use crypto_secretbox::{KeyInit, XSalsa20Poly1305};
+use derivative::Derivative;
 use futures_util::StreamExt;
 use tracing::{debug, error, info};
 
@@ -27,11 +28,16 @@ pub use udp::{UDPMessage, VoiceUDP};
 
 const FRAME_SIZE_IN_BYTES: usize = 200;
 
+#[derive(Derivative)]
+#[derivative(Debug)]
 pub struct VoiceManager {
     user_id: Arc<String>,
     ssrc: u32,
+    #[derivative(Debug="ignore")]
     gateway_rx: UnboundedReceiver<DiscordPayload>,
+    #[derivative(Debug="ignore")]
     gateway_tx: UnboundedSender<DiscordPayload>,
+    #[derivative(Debug="ignore")]
     udp_tx: Arc<Sender<UDPMessage>>,
 }
 
@@ -39,6 +45,7 @@ pub struct VoiceManager {
 impl VoiceManager {
     /// Initializes the voice gateway and UDP connection. The returned connection is fully
     /// authenticated and ready to send and receive audio.
+    #[tracing::instrument]
     pub async fn new(player: &Player) -> Result<Self> {
         let (manager_tx, mut gateway_rx) = unbounded_channel();
         let (mut gateway, gateway_tx) = VoiceGateway::connect(player, manager_tx).await?;

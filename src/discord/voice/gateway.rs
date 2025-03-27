@@ -9,7 +9,7 @@ use futures_util::{
     stream::{SplitSink, SplitStream},
     SinkExt, StreamExt,
 };
-use tracing::{error};
+use tracing::{debug, error, trace};
 use tokio::{
     net::TcpStream,
     sync::{
@@ -37,6 +37,7 @@ pub struct VoiceGateway {
 impl VoiceGateway {
     /// Connects to the voice gateway, sends identify payload, and returns a [`VoiceGateway`]
     /// as well as a [`UnboundedSender`] to send payloads to the gateway.
+    #[tracing::instrument(skip(tx))]
     pub async fn connect(
         player: &Player,
         tx: UnboundedSender<DiscordPayload>,
@@ -105,7 +106,7 @@ impl VoiceGateway {
                         },
                         Err(e) => {
                             error!("frick");
-                            return Err(e);
+                            return Err(e.into());
                         }
                     }
                 },
@@ -113,6 +114,7 @@ impl VoiceGateway {
         }
     }
 
+    #[tracing::instrument(skip(self))]
     async fn identify(&self, player: &Player) -> Result<()> {
         let inner_payload = Identify {
             server_id: player.guild_id(),
@@ -128,7 +130,7 @@ impl VoiceGateway {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_millis();
-        DiscordPayload::Heartbeat(Heartbeat { nonce })
+        DiscordPayload::Heartbeat(nonce)
     }
 
     fn start_heartbeating(&self) {
