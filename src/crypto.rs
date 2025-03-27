@@ -27,18 +27,14 @@ impl EncryptionMode {
                 NetworkEndian::write_u32(&mut nonce_buf[..4], *nonce);
                 *nonce += 1u32;
                 match cipher.encrypt(&nonce_buf.into(), data.as_ref()) {
-                    Ok(ciphertext) => {
-                        Ok([rtp_header, &ciphertext, &nonce_buf[..4]].concat())
-                    }
+                    Ok(ciphertext) => Ok([rtp_header, &ciphertext, &nonce_buf[..4]].concat()),
                     Err(e) => return Err(anyhow::anyhow!(e)),
                 }
             }
             EncryptionMode::XSalsa20Poly1305Suffix => {
                 let nonce = XSalsa20Poly1305::generate_nonce(&mut rand::thread_rng());
                 match cipher.encrypt(&nonce, data.as_ref()) {
-                    Ok(ciphertext) => {
-                        Ok([rtp_header, &ciphertext, nonce.as_ref()].concat())
-                    }
+                    Ok(ciphertext) => Ok([rtp_header, &ciphertext, nonce.as_ref()].concat()),
                     Err(e) => return Err(anyhow::anyhow!(e)),
                 }
             }

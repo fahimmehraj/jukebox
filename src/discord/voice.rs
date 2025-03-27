@@ -33,11 +33,11 @@ const FRAME_SIZE_IN_BYTES: usize = 200;
 pub struct VoiceManager {
     user_id: Arc<String>,
     ssrc: u32,
-    #[derivative(Debug="ignore")]
+    #[derivative(Debug = "ignore")]
     gateway_rx: UnboundedReceiver<DiscordPayload>,
-    #[derivative(Debug="ignore")]
+    #[derivative(Debug = "ignore")]
     gateway_tx: UnboundedSender<DiscordPayload>,
-    #[derivative(Debug="ignore")]
+    #[derivative(Debug = "ignore")]
     udp_tx: Arc<Sender<UDPMessage>>,
 }
 
@@ -131,19 +131,19 @@ impl VoiceManager {
             user_id: None,
             ssrc: self.ssrc,
         }))?;
-        
+
         info!("started playing audio");
         let weak_udp_tx = Arc::downgrade(&self.udp_tx);
-        
+
         // Create a bounded channel for buffering audio packets
         let (packet_tx, mut packet_rx) = tokio::sync::mpsc::channel(32); // Buffer size of 32 packets
-        
+
         // Spawn a separate task for reading from OggStream
         tokio::spawn(async move {
             let f = File::open(path).await.unwrap();
             //let mut stream = OggStream::new(f);
             let mut stream = WebmStream::new(f);
-            
+
             while let Some(packet) = stream.next().await {
                 if packet_tx.send(packet).await.is_err() {
                     // Channel closed, receiver dropped
@@ -155,10 +155,10 @@ impl VoiceManager {
         // Main playback loop
         tokio::spawn(async move {
             let mut interval = time::interval(time::Duration::from_millis(20));
-            
+
             loop {
                 interval.tick().await;
-                
+
                 if let Some(udp_tx) = weak_udp_tx.upgrade() {
                     match packet_rx.recv().await {
                         Some(packet) => {

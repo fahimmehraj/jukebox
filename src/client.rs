@@ -10,17 +10,14 @@ use futures_util::{
     SinkExt, StreamExt,
 };
 use player::Player;
-use tokio::sync::{
-    mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender},
-    RwLock,
-};
+use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use tracing::{error, info};
 
 use payloads::ClientPayload;
 
 use crate::{
     server::Headers,
-    utils::{handle_message, parse_msg, ReadMessageError},
+    utils::{parse_msg, ReadMessageError},
 };
 
 use self::payloads::{Destroy, VoiceUpdate};

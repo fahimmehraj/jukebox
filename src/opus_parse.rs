@@ -4,10 +4,10 @@ use std::{
     vec,
 };
 
-use tracing::{error, info, trace, warn};
 use packed_struct::prelude::*;
 use tokio::io::{AsyncRead, ReadBuf};
 use tokio_stream::Stream;
+use tracing::{error, info, trace, warn};
 
 #[derive(PackedStruct, Debug, Copy, Clone)]
 #[packed_struct(endian = "lsb", bit_numbering = "msb0", size_bytes = "27")]

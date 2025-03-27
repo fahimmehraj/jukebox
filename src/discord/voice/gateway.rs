@@ -9,7 +9,6 @@ use futures_util::{
     stream::{SplitSink, SplitStream},
     SinkExt, StreamExt,
 };
-use tracing::{debug, error, trace};
 use tokio::{
     net::TcpStream,
     sync::{
@@ -19,6 +18,7 @@ use tokio::{
     time,
 };
 use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream};
+use tracing::{debug, error, trace};
 
 use crate::{client::player::Player, utils::handle_message};
 

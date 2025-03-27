@@ -1,20 +1,23 @@
 use std::{
     io::{Error, ErrorKind},
     net::SocketAddr,
-    str::FromStr, sync::Arc,
+    str::FromStr,
+    sync::Arc,
 };
 
 use anyhow::Result;
 use byteorder::{ByteOrder, NetworkEndian};
 
 use crypto_secretbox::XSalsa20Poly1305;
+use tokio::{
+    net::UdpSocket,
+    sync::mpsc::{channel, Receiver, Sender},
+};
 use tracing::error;
-use tokio::{net::UdpSocket, sync::mpsc::{channel, Receiver, Sender}};
 
 use crate::crypto::EncryptionMode;
 
 const SILENCE_FRAME: [u8; 3] = [0xf8, 0xff, 0xfe];
-
 
 #[derive(Debug)]
 pub enum UDPMessage {
