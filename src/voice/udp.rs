@@ -2,7 +2,6 @@ use std::{
     io::{Error, ErrorKind},
     net::SocketAddr,
     str::FromStr,
-    sync::Arc,
 };
 
 use anyhow::Result;
@@ -17,6 +16,8 @@ use tracing::error;
 
 use crate::crypto::EncryptionMode;
 
+use super::VoiceError;
+
 const SILENCE_FRAME: [u8; 3] = [0xf8, 0xff, 0xfe];
 
 #[derive(Debug)]
@@ -27,11 +28,10 @@ pub enum UDPMessage {
 
 pub struct VoiceUDP {
     ssrc: u32,
-    remote_addr: SocketAddr,
     local_addr: SocketAddr,
     mode: EncryptionMode,
     player_rx: Receiver<UDPMessage>,
-    socket: Arc<UdpSocket>,
+    socket: UdpSocket,
     sequence: u16,
     timestamp: u32,
     cipher: Option<XSalsa20Poly1305>,
@@ -44,16 +44,15 @@ impl VoiceUDP {
         ssrc: u32,
         dest_ip: SocketAddr,
         mode: EncryptionMode,
-    ) -> Result<(Self, Sender<UDPMessage>)> {
+    ) -> Result<(Self, Sender<UDPMessage>), VoiceError> {
         let (udp_tx, player_rx) = channel(1);
-        let socket = Arc::new(UdpSocket::bind("0.0.0.0:0").await?);
+        let socket = UdpSocket::bind("0.0.0.0:0").await?;
         socket.connect(dest_ip).await?;
-        let src_ip = Self::ip_discovery(Arc::clone(&socket), ssrc).await?;
+        let src_ip = Self::ip_discovery(&socket, ssrc).await?;
 
         Ok((
             Self {
                 ssrc,
-                remote_addr: dest_ip,
                 local_addr: src_ip,
                 mode,
                 player_rx,
@@ -73,11 +72,13 @@ impl VoiceUDP {
         ))?;
 
         loop {
-            let msg = self
-                .player_rx
-                .recv()
-                .await
-                .ok_or(Error::new(ErrorKind::Other, "Player channel closed"))?;
+            let msg = match self.player_rx.recv().await {
+                Some(msg) => msg,
+                None => {
+                    // Player and VoiceManager are dropped
+                    return Ok(());
+                }
+            };
 
             let mut packet = vec![0u8; 12];
             packet[0] = 0x80;
@@ -113,11 +114,7 @@ impl VoiceUDP {
         self.local_addr
     }
 
-    pub fn remote_addr(&self) -> SocketAddr {
-        self.remote_addr
-    }
-
-    async fn ip_discovery(socket: Arc<UdpSocket>, ssrc: u32) -> Result<SocketAddr> {
+    async fn ip_discovery(socket: &UdpSocket, ssrc: u32) -> Result<SocketAddr, VoiceError> {
         let mut discovery_buf = vec![0u8; 74];
         NetworkEndian::write_u16(&mut discovery_buf[0..2], 0x1);
         NetworkEndian::write_u16(&mut discovery_buf[2..4], 70);
@@ -132,10 +129,13 @@ impl VoiceUDP {
                         .iter()
                         .skip(8)
                         .position(|&x| x == 0)
-                        .expect("No null byte");
-                    let ip = std::str::from_utf8(&discovery_buf[8..8 + null_byte_index])?;
+                        .expect("null byte should exist");
+                    let ip = std::str::from_utf8(&discovery_buf[8..8 + null_byte_index])
+                        .map_err(|e| std::io::Error::new(ErrorKind::InvalidData, e))?;
                     let port = NetworkEndian::read_u16(&discovery_buf[discovery_buf.len() - 2..]);
-                    return Ok(SocketAddr::from_str(&format!("{}:{}", ip, port))?);
+                    let addr = SocketAddr::from_str(&format!("{}:{}", ip, port))
+                        .map_err(|e| std::io::Error::new(ErrorKind::InvalidData, e))?;
+                    return Ok(addr);
                 }
             }
         }

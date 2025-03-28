@@ -1,7 +1,6 @@
 use serde::{Deserialize, Serialize};
-use serde_with::{serde_as, DefaultOnError, VecSkipError};
+use serde_with::{serde_as, VecSkipError};
 use tokio_tungstenite::tungstenite::Message;
-use tracing::debug;
 
 use crate::crypto::EncryptionMode;
 
@@ -125,7 +124,7 @@ pub struct Resume {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Hello {
     pub v: u8,
-    pub heartbeat_interval: f64,
+    pub heartbeat_interval: u64,
 }
 
 // Resumed has no data

@@ -32,18 +32,18 @@ pub enum Opcode {
     Destroy(Destroy),
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct VoiceUpdate {
     pub session_id: String,
     pub event: VoiceUpdateEvent,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct VoiceUpdateEvent {
     pub token: String,
     pub guild_id: String,
-    pub endpoint: Option<String>,
+    pub endpoint: String,
 }
 
 // possibly change track type to custom type

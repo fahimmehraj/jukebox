@@ -1,7 +1,7 @@
 pub mod payloads;
 pub mod player;
 
-use std::{collections::HashMap, sync::Arc};
+use std::collections::HashMap;
 
 use anyhow::Result;
 use derivative::Derivative;
@@ -20,8 +20,6 @@ use crate::{
     utils::{parse_msg, ReadMessageError},
 };
 
-use self::payloads::{Destroy, VoiceUpdate};
-
 // Axum Websocket, not Tungstenite
 type WebSocket = axum::extract::ws::WebSocket;
 type Message = axum::extract::ws::Message;
@@ -29,9 +27,9 @@ type Message = axum::extract::ws::Message;
 #[derive(Derivative)]
 #[derivative(Debug)]
 pub struct Client {
-    user_id: Arc<String>,
+    user_id: String,
     client_name: String,
-    players: HashMap<String, UnboundedSender<ClientPayload>>,
+    players: HashMap<String, Player>,
 
     #[derivative(Debug = "ignore")]
     from_players_rx: UnboundedReceiver<ClientPayload>,
@@ -49,7 +47,7 @@ impl Client {
         let (ws_writer, ws_reader) = ws.split();
         let (to_client_tx, from_players_rx) = unbounded_channel();
         Self {
-            user_id: Arc::new(headers.user_id),
+            user_id: headers.user_id,
             client_name: headers.client_name,
             players: HashMap::new(),
             to_client_tx,
@@ -59,41 +57,40 @@ impl Client {
         }
     }
 
-    pub fn user_id(&self) -> Arc<String> {
-        self.user_id.clone()
+    pub fn user_id(&self) -> &str {
+        &self.user_id
     }
 
-    pub fn client_name(&self) -> String {
-        self.client_name.clone()
+    pub fn client_name(&self) -> &str {
+        &self.client_name
     }
 
     #[tracing::instrument(level = "trace")]
-    pub async fn add_player(&mut self, voice_update: VoiceUpdate) -> Result<()> {
+    pub async fn add_player(&mut self, voice_update: payloads::VoiceUpdate) -> Result<()> {
         let guild_id = voice_update.event.guild_id.clone();
-        let (mut player, to_player_tx) =
-            Player::new(self.user_id(), voice_update, self.to_client_tx.clone()).await?;
-        tokio::spawn(async move {
-            if let Err(e) = player.start().await {
-                error!("Player error: {}", e);
-            }
-        });
-        self.players.insert(guild_id, to_player_tx);
+        let player = Player::new(
+            &self.user_id,
+            voice_update,
+        )
+        .await?;
+        player.connection_manager.play_audio("Ghost Town.webm").await?;
+        self.players.insert(guild_id, player);
         Ok(())
-    }
-
-    pub async fn remove_player(&mut self, guild_id: &str) {
-        self.players.remove(guild_id);
     }
 
     #[tracing::instrument(level = "debug")]
     pub async fn send_to_player(&mut self, client_payload: ClientPayload) -> Result<()> {
-        match self.players.get(&client_payload.guild_id) {
+        if let payloads::Opcode::Destroy(_) = client_payload.op {
+            self.players.remove(&client_payload.guild_id);
+            return Ok(());
+        }
+        match self.players.get_mut(&client_payload.guild_id) {
             None => Err(anyhow::anyhow!(
                 "no player found for guild {}",
                 client_payload.guild_id
             )),
-            Some(player_tx) => {
-                player_tx.send(client_payload)?;
+            Some(player) => {
+                player.handle_client_payload(client_payload).await?;
                 Ok(())
             }
         }
@@ -115,10 +112,7 @@ impl Client {
                     match parsed_msg {
                         Ok(payload) => self.handle_payload(payload).await,
                         Err(e)=> match e {
-                            ReadMessageError::WebsocketClosed => {
-                                self.destroy_players().await;
-                                break;
-                            },
+                            ReadMessageError::WebsocketClosed => break,
                             ReadMessageError::SerializationError(e) => error!(e),
                             ReadMessageError::WebsocketStreamError(e) => error!(e),
                         }
@@ -128,18 +122,6 @@ impl Client {
                     Some(client_payload) => self.send(client_payload.into()).await,
                     None => unreachable!("a copy of the associated tx always exists inside client"),
                 },
-            }
-        }
-    }
-
-    async fn destroy_players(&self) {
-        for (guild_id, to_player_tx) in &self.players {
-            let destroy_payload = ClientPayload {
-                guild_id: guild_id.clone(),
-                op: payloads::Opcode::Destroy(Destroy {}),
-            };
-            if let Err(e) = to_player_tx.send(destroy_payload) {
-                error!("{}", e);
             }
         }
     }

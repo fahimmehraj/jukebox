@@ -1,7 +1,6 @@
 use anyhow::Result;
 use jukebox::config::Configuration;
 use tracing::info;
-use tracing_subscriber::fmt::format::FmtSpan;
 
 #[tokio::main]
 async fn main() -> Result<()> {
